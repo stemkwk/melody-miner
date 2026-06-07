@@ -31,19 +31,20 @@ echo "[0/5] Creating .venv with $PYTHON"
 source "$ACTIVATE"
 
 echo "[1/5] Upgrade pip / setuptools / wheel (py3.12 needs modern setuptools)"
-pip install -U pip setuptools wheel
+# Use `python -m pip` (not bare `pip`) to avoid Windows self-upgrade protection.
+python -m pip install -U pip setuptools wheel
 
 echo "[2/5] PyTorch ($TORCH_INDEX)"
-pip install torch torchaudio --index-url "$TORCH_INDEX"
+python -m pip install torch torchaudio --index-url "$TORCH_INDEX"
 
 echo "[3/5] Core + Branch A + Branch B deps (numpy forced to wheel)"
-pip install --only-binary=numpy -r requirements.txt
+python -m pip install --only-binary=numpy -r requirements.txt
 
 echo "[4/5] basic-pitch WITHOUT its deps (avoids TensorFlow; ONNX backend auto-selected)"
-pip install --no-deps "basic-pitch==0.4.0"
+python -m pip install --no-deps "basic-pitch==0.4.0"
 
 echo "[5/5] melody-miner package (editable) + soundfont"
-pip install -e . --no-deps
+python -m pip install -e . --no-deps
 
 mkdir -p soundfonts
 if ! ls soundfonts/*.sf2 >/dev/null 2>&1; then
