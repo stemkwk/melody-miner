@@ -1,0 +1,398 @@
+# ============================================================
+# Single source of truth for all m2a_transformer hyperparameters.
+# Anything that drifts between code and config is a bug.
+# ============================================================
+
+tokenizer:
+  # Tokenizer implementation. See `available_tokenizers()` for the registry.
+  name: "remi_v1"
+  # Beat resolution: subdivisions per quarter note. 4 → sixteenth-note grid.
+  resolution: 4
+  # How many positions per bar (assumes 4/4): resolution * 4 = 16.
+  positions_per_bar: 16
+  # Pitch range (inclusive). 21..108 covers the 88-key piano.
+  pitch_min: 21
+  pitch_max: 108
+  # Duration is binned in units of `resolution` (i.e. 16th notes).
+  # 1..32 covers 1/16-note … 2 whole notes.
+  duration_min: 1
+  duration_max: 32
+  # Velocity binned into N buckets across 1..127.
+  velocity_bins: 32
+  # Tempo binned log-scale into N buckets across [tempo_min, tempo_max] BPM.
+  # 16 log-spaced bins give ~9% spacing (human JND ≈ 4-6%), covering all
+  # musical tempo categories without the density imbalance of linear binning.
+  tempo_bins: 16
+  tempo_min: 50
+  tempo_max: 200
+  # Track tags: "melody" = condition (input), "accompaniment" = target (generated).
+  # Interleaved format: both tracks are interleaved by time position, separated by SEP token.
+  tracks: ["melody", "accompaniment"]
+  # Maximum sequence length (after concatenating condition + target).
+  # 2560: token_add_version Lakh preprocessing 기준값.
+  # 2560-token window ≈ 12-13 bars — chord-progression span 충분히 커버.
+  max_seq_len: 2560
+  # ------------------------------------------------------------------
+  # Relative harmonic encoding settings
+  # ------------------------------------------------------------------
+  # Number of chord quality types (9 = core set, 12 = full set incl. dim7/hdim7/dom9).
+  chord_qualities: 12
+  # Prepend KEY_{root}_{mode} token (24 variants). Enables key-aware chord tokens.
+  use_key_tokens: true
+
+model:
+  name: "decoder_transformer_v1"
+  d_model: 512
+  n_layers: 12
+  n_heads: 8
+  d_ff: 2048
+  dropout: 0.1
+  # If true, use rotary position embeddings; else learned absolute.
+  use_rope: true
+  # Tie input embedding and output projection weights.
+  tie_weights: true
+  # RoPE buffer length — must be >= tokenizer.max_seq_len (with headroom for
+  # generation past the prompt length). 4096 covers 2048-prompt + 2048-generate.
+  max_seq_len: 4096
+  # torch.compile: 20-30% speedup on Ampere+ (RTX 3090/4090, A100, H100).
+  # Adds 1-2 min compile overhead on first run; fully amortised over 200 epochs.
+  # Default: false (safe everywhere). Enable on native Linux servers only:
+  #   --set model.compile=true
+  # Do NOT enable on Windows + Docker Desktop (WSL2 Triton SIGSEGV).
+  compile: false
+  compile_mode: "default"            # reduce-overhead uses CUDA Graphs → OOM on 24GB w/ GC
+  # Recompute activations during backward to halve peak VRAM (~30% slower).
+  # Required on 24GB GPUs at bs=64, seq=2048, n_layers=12. Set false only if
+  # VRAM > 40GB and you want maximum throughput.
+  gradient_checkpointing: true
+
+# Train-time augmentations applied on each chunk fetched from disk. They
+# only fire when the dataset is constructed with `train=True`, so validation
+# always sees the clean tokens.
+augment:
+  # Random pitch transposition range in semitones. 0 disables transposition.
+  # Both condition (melody) and target (accompaniment) get the same offset
+  # so the harmonic relationship is preserved — only the key changes.
+  # ±6 (half-step tritone max) is sufficient because CHROMA/SCALE_DEGREE tokens
+  # are already key-relative; we only need to diversify OCTAVE and KEY tokens.
+  # (Baseline used ±12 with absolute PITCH tokens to cover all 12 keys.)
+  pitch_transpose_semitones: 6
+  # Random velocity bin shift (±N bins out of `tokenizer.velocity_bins`).
+  # Each note gets an independent draw → simulates natural dynamic variation.
+  # 2 bins ≈ ±8 MIDI velocity units on a 32-bin scale.
+  velocity_jitter_bins: 2
+  # Random tempo shift: ±N bins applied to every TEMPO_* token in the chunk.
+  # All TEMPO tokens shift by the *same* delta so the chunk stays consistent.
+  # 2 bins ≈ ±9 BPM on the default 50-200 BPM range with 32 bins.
+  tempo_jitter_bins: 2
+  # Random duration jitter: ±N bins applied to each DUR_* token independently.
+  # Teaches the model to handle slightly stretched / shortened note lengths.
+  # 1 bin ≈ ±1 sixteenth note (at resolution=4).
+  duration_jitter_bins: 1
+  # Classifier-Free Guidance: with this probability, ALL melody/condition tokens
+  # of a chunk (every bar-block, not just the first) are replaced with PAD so the
+  # model learns a true unconditional P(accompaniment). Enables CFG (w>1) at
+  # inference (cond vs uncond logit blend). 0.075 = a usable unconditional mode
+  # without sacrificing melody-following; the data's natural melody-silent
+  # passages (intros/breaks) already supply some unconditional exposure.
+  condition_dropout_prob: 0.075
+
+training:
+  # Base batch size before VRAM-tier scaling (env_scaling.tiers multiplies this).
+  # On RTX 4090 (scale×2) → 64; A100 40G (scale×4) → 128; T4/16GB (scale×1) → 32.
+  # 16GB (RTX 4060Ti / 4070Ti Super): scale×1 → effective 32.
+  #   effective 64를 맞추려면: --set training.accumulate_grad_batches=2
+  # Flash Attention (SDPA) keeps activation memory O(T) so large batches are safe.
+  # Override per-run: --set training.batch_size=32 --set training.accumulate_grad_batches=2
+  batch_size: 32
+  # WARM-START FINE-TUNE LR: lowered from the from-scratch 3.0e-4 to 1.0e-4.
+  # The base model is already converged; 3e-4 (the from-scratch peak) would sit
+  # near-peak through the whole short run (cosine over `epochs` barely decays
+  # before early-stop) and wreck the learned harmony (catastrophic forgetting).
+  # 1e-4 adapts to pop comping without nuking the base. Use ~5e-5 for a more
+  # conservative run. Restore 3.0e-4 for from-scratch training.
+  learning_rate: 1.0e-4
+  # Realistic fine-tune horizon so cosine actually anneals across the run
+  # (override per-run with EPOCHS=40). 200 was the from-scratch horizon.
+  epochs: 40
+  beta1: 0.9
+  beta2: 0.95
+  weight_decay: 0.1
+  grad_clip: 1.0
+  # Lightning's gradient accumulation. Effective batch = batch_size * this.
+  # Use when you want a bigger effective batch than VRAM allows.
+  accumulate_grad_batches: 1
+  # warmup_steps: tuned for bs=64 (tier-scaled to 128/256 on server).
+  # Batch 8x larger → steps/epoch 8x fewer → 500 steps reaches the same
+  # fraction of epoch-1 as 1000 steps did at bs=16.
+  warmup_steps: 500
+  min_lr_factor: 0.1     # cosine decays to lr * this factor
+  # "adamw_fused" — fused CUDA kernel, 5-10% faster than standard AdamW.
+  # PL's AMP-closure block is neutralised in train_components.py so grad_clip
+  # works normally. Falls back to standard AdamW on CPU automatically.
+  optimizer: "adamw_fused"
+  scheduler: "cosine_warmup"
+  # If true, compute CE loss only on accompaniment (target) tokens.
+  mask_condition_loss: true
+  # ------------------------------------------------------------------
+  # Token-type-aware loss weighting (see config.py:TrainingConfig)
+  # ------------------------------------------------------------------
+  # Structural tokens (BAR/TRACK/TEMPO) are easy to predict — down-weight
+  # so the optimiser focuses on PITCH/DUR/VEL where the music lives.
+  loss_struct_weight: 0.3
+  loss_content_weight: 1.5
+  # POS_n(=언제 치는가, 리듬)은 structural에서 분리해 가중치를 올림.
+  # 수평(타이밍) 레버 — 코드 두께(수직)는 polyphony boost가 따로 담당하므로
+  # 이 값을 올려도 단선율로 가지 않음. 모델이 GT의 온셋 위치를 충실히 학습.
+  loss_pos_weight: 1.5
+  # 폴리포닉 결정(VEL → PITCH 이어지는 같은-위치 코드 추가) 손실 가중치.
+  # POP909 GT는 위치의 49% 가 코드이지만 epoch 10 모델은 11% → 모델이 코드를
+  # 적극적으로 생성하도록 boost. 1.0 = 비활성.
+  # ⚠ 2.0은 한 위치에 무한정 쌓는 방향으로 과교정돼 1박 클러스터 붕괴를 만들었음.
+  # 1.3으로 완화 + max_stack 캡: 코드는 유지(수직, 단선율 방지)하되 클러스터 억제.
+  polyphony_loss_boost: 1.3
+  # 한 위치에서 연속 스택 허용 최대 깊이.
+  # 이 이상 쌓이면 boost를 0으로 꺼서 "더 쌓기" 압력을 제거 → 모델이 자연스럽게
+  # 다음 위치로 넘어가는 법을 학습. 4 = root+3+5+7 (7th 코드).
+  polyphony_max_stack: 4
+  # ------------------------------------------------------------------
+  # Scheduled sampling (exposure-bias fix — the real learning change)
+  # ------------------------------------------------------------------
+  # Diagnosis: teacher-forced metrics are healthy but autoregressive generation
+  # drifts (beat-1 collapse / front-loaded bars). The model's conditional is
+  # correct; it just never practised recovering from its OWN outputs. During
+  # training we feed back the model's argmax prediction for accompaniment input
+  # tokens with probability p, annealed 0 -> max over warmup_epochs.
+  #   p=0 (max_prob 0.0) => identical to plain teacher forcing.
+  # Costs ~1.5x train step (one extra no-grad forward) when active.
+  # Measure the effect with scripts/analysis/generation_rhythm_stats.py
+  # (back_half_share -> ~0.5, pos0 -> ~0.07), NOT val_loss.
+  scheduled_sampling_max_prob: 0.25
+  scheduled_sampling_warmup_epochs: 6
+  scheduled_sampling_start_epoch: 1
+  # 폴리포니가 풍부한 chunk를 더 자주 샘플링 (WeightedRandomSampler).
+  # weight = (poly_score + 0.01) ** alpha. 0.0 = 균등.
+  # DISABLED: redundant with polyphony_loss_boost (both push polyphony) and
+  # distorts the data distribution (downweights sparse-texture songs). Keeping a
+  # single targeted training-time lever (loss_boost) for clean attribution.
+  polyphony_sample_weight_alpha: 0.0
+  # ------------------------------------------------------------------
+  # Source-balanced sampling (WeightedRandomSampler, no data discarded)
+  # ------------------------------------------------------------------
+  # Natural distribution (train chunk counts, 2026-05-31 post-Slakh-redux):
+  #   lakh≈89.0%, slakh≈8.2%, pop909≈2.8%  (shards 15897 / 1355 / 909).
+  # Weights back-calculated as: w_i = target_i / natural_i, normalised so max=1.0.
+  # Set all to 1.0 to disable (uniform / natural distribution).
+  #
+  # === POP909 MUSICALITY FINE-TUNE (train/pop909-finetune) ===================
+  # The base model (Lakh-dominated, pop909 only ~5%) generates harmonically OK
+  # but rhythmically "averaged"/non-idiomatic accompaniment — it never saw enough
+  # clean comping. This run WARM-STARTS from the collapse-fixed checkpoint and
+  # trains on POP909 + Slakh only (Lakh DROPPED: too large, the averaging culprit).
+  #   - POP909: classical-leaning but excellent, consistent piano comping → dominant.
+  #   - Slakh:  cleaner + slightly more pop-ish + harmonically rich → diversity /
+  #             anti-overfit / anti-forgetting regulariser.
+  #
+  # Target effective distribution: pop909=60%, slakh=40%, lakh=0%.
+  #   w_pop909 = 60/2.8 = 21.43 -> 1.000  (normalised, max)
+  #   w_slakh  = 40/8.2 =  4.88 -> 0.228
+  #   w_lakh   = 0                -> 0.0   (excluded from sampling)
+  # NOTE: pop909 is heavily oversampled (909 songs) -> watch overfitting; rely on
+  # the autoregressive diagnostic (scripts/analysis/generation_rhythm_stats.py),
+  # NOT val_loss, to pick the best epoch (val_loss is blind to the groove problem).
+  #
+  # Previous base-run weights (lakh=55/slakh=40/pop909=5):
+  #   pop909: 0.3732   slakh: 1.0   lakh: 0.1270
+  source_weight_pop909: 1.0
+  source_weight_slakh:  0.228
+  source_weight_lakh:   0.0
+  # Song-level train/val split: 20% of songs held out for validation.
+  # Deterministic SHA-256 hash of shard filename — stable across re-runs.
+  # 0.0 = legacy stride-only split (all songs in both train and val).
+  val_ratio: 0.2
+  # val batch_size — validation has no backward pass so activations need not
+  # be retained.  0 = auto (2× train batch_size), halving val epoch time
+  # and reducing peak VRAM spikes during evaluation.
+  val_batch_size: 0
+  log_every_n_steps: 25
+  # Three-tier checkpointing strategy:
+  #
+  #   best.ckpt        saved only when val_loss improves (no fixed schedule)
+  #   last.ckpt        saved every checkpoint_every_n_epochs  (resume anchor)
+  #   last_step.ckpt   saved every checkpoint_every_n_train_steps  (crash guard)
+  #
+  checkpoint_dir: "checkpoints"
+  checkpoint_monitor: "val_loss"
+  checkpoint_monitor_mode: "min"
+  # Keep ALL epoch checkpoints for this fine-tune: val_loss does NOT track the
+  # groove/musicality objective, so we pick the best epoch afterward via the
+  # autoregressive diagnostic + ear, not by val_loss ranking. Files are named
+  # best-{epoch}-{val_loss} so they don't overwrite. (~450MB/epoch on the volume;
+  # prune after selecting. Set back to 1 for normal best-only runs.)
+  checkpoint_save_top_k: -1
+  # Keep FULL checkpoints (optimizer state retained — resumable from any snapshot).
+  checkpoint_save_weights_only: false
+  # Archive every 2 epochs (not every epoch) so 40 epochs → 20 full checkpoints
+  # ≈ 9GB on a 20GB volume (455MB each). Still ample granularity to pick the best
+  # groove epoch by diagnostic.
+  checkpoint_archive_every_n_epochs: 2
+  # last.ckpt: every 5 epochs is enough — last_step.ckpt covers mid-epoch gaps.
+  checkpoint_every_n_epochs: 5
+  # last_step.ckpt: every 1000 steps ≈ ~30s on RTX 4090 (bs=32). Set 0 to disable.
+  # 100-step interval caused severe I/O overhead (~450MB write every ~3s on HDD).
+  checkpoint_every_n_train_steps: 1000
+  # Early stopping — refuse to keep burning GPU when val_loss plateaus.
+  # Triggered iff training runs for at least `early_stopping_min_epochs`.
+  early_stopping_enabled: true
+  # patience: how many epochs without improvement before stopping.
+  # 10 epochs outlasts the warmup period and covers cosine-decay slow phases
+  # without burning excess GPU budget.
+  early_stopping_patience: 10
+  # min_delta: improvement < this is treated as "no improvement" and counts
+  # against patience. 0.001 is tight enough to skip noise but loose enough
+  # not to penalise the gradual tail of cosine decay.
+  early_stopping_min_delta: 0.001
+  # min_epochs: never stop before this epoch regardless of patience.
+  # Matched to patience so early stopping only fires after a full patience window.
+  early_stopping_min_epochs: 10
+  # Logging persistence (independent of W&B availability).
+  log_to_file: true
+  log_dir: "logs"
+  # CSV logger writes metrics to disk so they survive even if W&B is off.
+  csv_logger_enabled: true
+  # W&B
+  wandb_project: "m2a-transformer"
+  wandb_default_run_name: "pop909-baseline"
+  # Dry-run: train this many steps, report throughput, then exit. 0 = disabled.
+  # Use this BEFORE committing to a long run on a rented GPU so you can budget.
+  dry_run_steps: 0
+
+inference:
+  # Diversity-friendly defaults (top_p only, no top_k cutoff). Higher
+  # temperature + wider top_p prevents collapse to a single dominant pitch.
+  # Tuned by inference sweep on the final model (ep7): temp 1.2 / top_p 0.97 puts
+  # the generated rhythm distribution closest to GT (back_half 0.52≈GT 0.51,
+  # pos0 0.06≈GT 0.085). top_p 0.97 beat 0.92 at every temperature; 1.4 overshot.
+  temperature: 1.2
+  top_k: 0                # 0 = disabled
+  top_p: 0.97
+  max_new_tokens: 2048    # POP909 song = ~6k tokens; 2048 covers most chunks
+  # Polyphony hack: after a complete (CHROMA/OCTAVE/DUR/VEL) quad, subtract this
+  # value from BAR/POS logits so the model is biased toward stacking another
+  # note at the same position (= chord) instead of advancing. 0.0 disables.
+  # DISABLED by default: inference-time band-aid that forces stacking the model
+  # may not have learned. Train with polyphony_loss_boost first; only enable this
+  # (no retrain needed) if generated accompaniment is observed to be too sparse.
+  structural_suppression: 0.0
+  # Harmonic avoid-note SOFT penalty: subtract this from the logit of any CHROMA
+  # that is an "avoid note" against the model's current chord (e.g. the natural
+  # 11 over a major 3rd). 0.0 disables. Soft (not a hard mask) so colour/passing
+  # tones survive; ~2-4 is a gentle nudge, larger values discourage more firmly.
+  # Inference-only, no retraining required.
+  avoid_note_penalty: 0.0
+  # Render generated MIDI to WAV at end of inference (requires pyfluidsynth).
+  render_audio: false
+  soundfont: ""           # path to .sf2; empty = auto-detect system soundfonts
+  sample_rate: 22050
+
+humanize:
+  # Add subtle randomness to velocity and timing to reduce mechanical feel.
+  # Applied automatically at the end of inference — set enabled: false to skip.
+  enabled: true
+  velocity_std: 6         # gaussian std for velocity jitter (±MIDI units, 1–127)
+  timing_std_ms: 8.0      # gaussian std for note-on timing jitter (milliseconds)
+  duration_std_ms: 5.0    # gaussian std for note duration jitter (milliseconds)
+
+dsp:
+  # Post-processing effects chain applied to rendered WAV output.
+  # Reverb → Compressor → Limiter
+  enabled: true
+  # Reverb: adds room/space feel — biggest improvement for dry MIDI audio
+  reverb: true
+  reverb_room_size: 0.25   # 0–1: larger = bigger room
+  reverb_damping: 0.5      # 0–1: higher = more high-freq absorption
+  reverb_wet_level: 0.18
+  reverb_dry_level: 0.82
+  # Compressor: glues the mix, controls velocity dynamics
+  compressor: true
+  compressor_threshold_db: -18.0
+  compressor_ratio: 4.0
+  compressor_attack_ms: 5.0
+  compressor_release_ms: 100.0
+  # Limiter: prevents clipping on final output
+  limiter: true
+  limiter_threshold_db: -1.0
+
+preprocessing:
+  # Fraction of bars that must contain ≥1 melody note.
+  # Also used per-instrument in weight selection: sparse candidates are skipped.
+  # 0.0 = disabled.
+  min_melody_coverage: 0.20
+
+  # Chord template match score threshold (|active_pcs ∩ template| / |template|).
+  # Lower → more chords but more false positives; higher → fewer, more confident.
+  chord_match_threshold: 0.75
+
+  # Minimum notes per instrument to be considered as melody/accompaniment candidate.
+  min_stem_notes: 4
+
+audio_input:
+  # Spectral noise reduction via noisereduce (applied before basic-pitch).
+  # Recommended for mic recordings in noisy environments.
+  denoise: false
+
+  # basic-pitch transcription quality parameters.
+  # Raise thresholds to get fewer, more confident notes (less noise).
+  # Lower them if notes are being missed.
+  onset_threshold: 0.5    # 0–1: higher = fewer false note onsets
+  frame_threshold: 0.3    # 0–1: higher = shorter / fewer sustained notes
+  min_note_length_ms: 58.0
+  min_frequency: 32.7     # Hz — C1 (lower limit); raise to ~130 (C3) for vocals
+  max_frequency: 2093.0   # Hz — C7 (upper limit)
+
+midi_output:
+  # GM program number (0–127) per logical track.
+  # See General MIDI spec for the full list.
+  # Common: 0=acoustic grand, 25=steel guitar, 40=violin, 48=strings,
+  #         56=trumpet, 65=alto sax, 73=flute, 19=church organ
+  programs:
+    melody:         40    # violin
+    accompaniment:   0    # acoustic grand piano
+
+env_scaling:
+  # Per-VRAM-tier batch-size multiplier (linear LR scaling applied too).
+  fallback_batch_scale: 1
+  default_precision: "bf16-mixed"
+  cpu_precision: "32"
+  tiers:
+    - vram_gte_gb: 40.0
+      batch_scale: 4
+      label: "A100 40GB+"
+    - vram_gte_gb: 22.0
+      batch_scale: 2
+      label: "RTX 3090 / 4090 / A5000"
+    - vram_gte_gb: 14.0
+      batch_scale: 1
+      label: "RTX 4060Ti / 4070Ti Super / T4 / RTX 3080 Ti (16GB)"
+  # Per-system-RAM tier → TOTAL shard-cache budget (GB), split across DataLoader
+  # workers at runtime. Bounds dataset._shard_cache so it can't grow unbounded
+  # (full 18k-shard dataset ≈ 2.8 GB; ×workers would otherwise OOM small boxes).
+  # First matching tier (highest ram_gte_gb ≤ detected RAM) wins; a huge cache_gb
+  # effectively means "cache everything".
+  ram_tiers:
+    - ram_gte_gb: 64.0
+      cache_gb: 24.0          # cache the whole dataset on every worker
+      label: "64GB+ workstation/server"
+    - ram_gte_gb: 32.0
+      cache_gb: 10.0
+      label: "32GB box"
+    - ram_gte_gb: 16.0
+      cache_gb: 4.0
+      label: "16GB box"
+    - ram_gte_gb: 0.0
+      cache_gb: 2.0           # Colab (12GB) and below → minimal cache
+      label: "<16GB / Colab"
+  num_workers_colab: 2
+  num_workers_windows: 0
+  num_workers_server_max: 8
+  prefetch_factor: 2

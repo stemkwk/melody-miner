@@ -1,0 +1,31 @@
+name: voice
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+  - rust
+  - portaudio
+  - ffmpeg
+  - pip:
+      # Install PyTorch separately after activating the env:
+      # pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+      - vocos==0.1.0
+      - deepfilternet==0.5.6
+      - torchcrepe
+      - transformers>=4.40
+      - fastapi>=0.110
+      - "uvicorn[standard]"
+      - websockets>=12.0
+      - librosa>=0.10
+      - soundfile
+      - sounddevice
+      - "numpy>=1.22,<2.0"
+      - scipy
+      - tqdm
+      - loguru
+      - requests
+      - python-multipart
+      # Windows client only — install manually on Windows:
+      # pip install pipwin && pipwin install pyaudio
