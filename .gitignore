@@ -1,0 +1,40 @@
+# Large model weights — distributed via GitHub Releases, not git.
+checkpoints/m2a/*.ckpt
+checkpoints/m2a/*.pt
+checkpoints/tnp/*.pt
+checkpoints/tnp/*.ckpt
+
+# Target-speaker reference audio (user-provided)
+references/*.wav
+references/*.flac
+
+# Run outputs / local input audio
+output/
+input/
+
+# Audio is never tracked (test inputs, stems, renders)
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.aiff
+
+# Soundfonts
+soundfonts/*.sf2
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.env
+
+# Local tooling / process artifacts (not part of the submission)
+.agents/
+skills-lock.json
+refactoring_plan.md
+
+# Keep placeholder READMEs and directory structure
+!checkpoints/m2a/README.md
+!checkpoints/tnp/README.md
+!references/README.md

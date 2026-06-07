@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "melody_miner"
+version = "0.1.0"
+description = "WAV → (M2A accompaniment generation ∥ TNP voice conversion) → single mix."
+requires-python = ">=3.10"
+# Heavy ML deps are pinned in requirements.txt / environment.yml so this stays
+# index-agnostic (torch CUDA build is installed separately). These are the
+# light glue deps the orchestrator itself imports.
+dependencies = [
+    "numpy<2",
+    "scipy",
+]
+
+[project.optional-dependencies]
+demo = ["gradio>=4.0", "librosa"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+# NOTE: src/m2a_transformer and src/tnp_voice_conversion are
+# NOT installed as packages — they are added to sys.path at runtime by
+# src/orchestration/__init__.py so the vendored sources stay byte-for-byte copies.
+
+[tool.setuptools.package-dir]
+"" = "src"

@@ -1,0 +1,319 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchaudio.functional as AF
+from torch import Tensor
+from transformers import HubertModel as _HubertModel
+
+try:
+    import torchcrepe
+
+    _CREPE_AVAILABLE = True
+except ImportError:
+    _CREPE_AVAILABLE = False
+
+try:
+    from df.enhance import enhance, init_df
+
+    _DFN_AVAILABLE = True
+except ImportError:
+    _DFN_AVAILABLE = False
+
+CONTENTVEC_MODEL = "lengyue233/content-vec-best"
+
+
+class ContentEncoder(nn.Module):
+    """
+    Frozen content encoder: DeepFilterNet3 → ContentVec → torchcrepe F0 → concat.
+
+    Sample-rate pipeline:
+        input 16 kHz
+          → resample 16k→48k → DeepFilterNet3 → resample 48k→16k
+          → ContentVec (last layer) → [B, T_frames, 768]
+          → torchcrepe (hop=320) → [B, T_frames, 1]
+          → concat → [B, T_frames, 769]
+
+    All sub-models are frozen (requires_grad=False, eval mode).
+    The DFN GRU hidden state is stateful across chunks: callers must invoke
+    reset_dfn_state() at the start of each new audio stream.
+    """
+
+    SR_DFN = 48_000
+    SR_HUB = 16_000
+    HOP = 320  # samples @ 16kHz; 20ms; matches ContentVec frame stride
+
+    def __init__(self, device: torch.device) -> None:
+        super().__init__()
+        self.device = device
+
+        # ── DeepFilterNet3 ────────────────────────────────────────────────────
+        if _DFN_AVAILABLE:
+            self.dfn_model, self.dfn_state, _ = init_df()
+            self.dfn_model = self.dfn_model.to(device)
+            self._freeze(self.dfn_model)
+        else:
+            self.dfn_model = None
+            self.dfn_state = None
+
+        # ── ContentVec ────────────────────────────────────────────────────────
+        # Speaker-disentangled HuBERT fine-tune; last layer used (not layer 6).
+        # Weights are downloaded to ~/.cache/huggingface/ on first run (~360 MB).
+        self.contentvec = _HubertModel.from_pretrained(CONTENTVEC_MODEL).to(device)
+        self._freeze(self.contentvec)
+
+        # torchcrepe is function-based (no nn.Module to freeze)
+        self._crepe_available = _CREPE_AVAILABLE
+
+    @staticmethod
+    def _freeze(module: nn.Module) -> None:
+        for p in module.parameters():
+            p.requires_grad_(False)
+        module.eval()
+
+    def reset_dfn_state(self, batch_size: int = 1) -> None:
+        """
+        Reset DeepFilterNet GRU hidden state for a new audio stream.
+        Must be called at the start of each WebSocket connection.
+        """
+        if self.dfn_model is not None:
+            self.dfn_model.reset_h0(batch_size=batch_size, device=self.device)
+
+    def _denoise(self, audio_16k: Tensor) -> Tensor:
+        """
+        Denoise audio using DeepFilterNet3.
+
+        NOTE: enhance() resets the DFN3 GRU at the start of every call.
+        Use _denoise_streaming() when GRU state must be preserved across calls.
+
+        Args:
+            audio_16k: [B, T]  mono 16 kHz float32
+        Returns:
+            denoised:  [B, T]  same shape, denoised
+        """
+        if self.dfn_model is None or self.dfn_state is None:
+            return audio_16k  # passthrough if DFN not installed
+
+        B, T = audio_16k.shape
+        audio_48k = AF.resample(audio_16k, self.SR_HUB, self.SR_DFN)  # [B, T*3]
+        enhanced_48k = enhance(self.dfn_model, self.dfn_state, audio_48k)  # [B, T*3]
+        denoised = AF.resample(enhanced_48k, self.SR_DFN, self.SR_HUB)  # [B, T]
+        if denoised.shape[-1] > T:
+            denoised = denoised[..., :T]
+        elif denoised.shape[-1] < T:
+            denoised = torch.nn.functional.pad(denoised, (0, T - denoised.shape[-1]))
+        return denoised
+
+    def _denoise_streaming(self, audio_16k: Tensor) -> Tensor:
+        """
+        Streaming-safe denoise: GRU state is preserved across calls.
+
+        Temporarily suppresses enhance()'s internal reset_h0 so the GRU
+        carries over from the previous block. Call reset_dfn_state() once
+        at stream start to initialise, then call this per block.
+        """
+        if self.dfn_model is None:
+            return audio_16k
+        _orig_reset = self.dfn_model.reset_h0
+        self.dfn_model.reset_h0 = lambda **kwargs: None  # suppress per-call reset
+        try:
+            return self._denoise(audio_16k)
+        finally:
+            self.dfn_model.reset_h0 = _orig_reset
+
+    @torch.no_grad()
+    def _extract_contentvec(self, audio_16k: Tensor) -> Tensor:
+        """
+        Extract ContentVec last-layer hidden states.
+
+        Args:
+            audio_16k: [B, T]  normalized float32 16 kHz
+        Returns:
+            features:  [B, T_frames, 768]
+        """
+        return self.contentvec(audio_16k).last_hidden_state  # [B, T_frames, 768]
+
+    PERIODICITY_THRESHOLD = 0.5
+    F0_MEDIAN_KERNEL = 5  # nanmedian window for octave-jump spike removal
+
+    @torch.no_grad()
+    def _extract_f0(self, audio_16k: Tensor) -> Tensor:
+        """
+        Extract F0 with torchcrepe + periodicity gate + nanmedian spike filter.
+
+        Unvoiced frames are marked NaN before the median window so they cannot
+        pull voiced pitch values down.  nanmedian returns a non-NaN value as
+        long as at least one frame in the window is voiced, naturally filling
+        short gaps without corrupting genuine silence.
+
+        Args:
+            audio_16k: [B, T]  16 kHz mono
+        Returns:
+            f0:        [B, T_frames, 1]  F0 in Hz (0.0 for unvoiced)
+        """
+        if not self._crepe_available:
+            B = audio_16k.shape[0]
+            T_frames = (audio_16k.shape[-1] // self.HOP) + 1
+            return torch.zeros(B, T_frames, 1, device=self.device)
+
+        pitch, periodicity = torchcrepe.predict(
+            audio_16k,
+            sample_rate=self.SR_HUB,
+            hop_length=self.HOP,
+            fmin=50.0,
+            fmax=800.0,
+            model="tiny",
+            decoder=torchcrepe.decode.argmax,
+            return_periodicity=True,
+            batch_size=None,
+            device=self.device,
+            pad=True,
+        )
+        pitch = torch.nan_to_num(pitch, nan=0.0)
+
+        # Mark unvoiced frames as NaN — they will not contaminate the median window
+        voiced = periodicity >= self.PERIODICITY_THRESHOLD
+        pitch_nan = torch.where(voiced, pitch, torch.full_like(pitch, float("nan")))
+
+        # nanmedian: each window takes median of non-NaN values only
+        k   = self.F0_MEDIAN_KERNEL
+        pad = k // 2
+        pitch_padded = F.pad(
+            pitch_nan.unsqueeze(1), (pad, pad), mode="constant", value=float("nan")
+        )
+        windows   = pitch_padded.unfold(-1, k, 1)               # [B, 1, T, k]
+        pitch_med = windows.nanmedian(dim=-1).values.squeeze(1)  # [B, T]
+
+        # Frames surrounded entirely by unvoiced stay NaN → 0
+        return torch.nan_to_num(pitch_med, nan=0.0).unsqueeze(-1)  # [B, T_frames, 1]
+
+    def forward(
+        self,
+        audio_16k: Tensor,
+        skip_denoise: bool = False,
+        hubert_stats: tuple | None = None,
+        f0_stats: tuple | None = None,
+        f0_audio_16k: Tensor | None = None,
+        lengths: list[int] | None = None,
+    ) -> Tensor:
+        """
+        Full content encoding pipeline.
+
+        Args:
+            audio_16k:    [B, T]  raw PCM float32 at 16 kHz
+            skip_denoise: if True, bypass DFN (caller owns DFN GRU state in streaming).
+            hubert_stats: (mean, std) each [1, 1, 768] — EMA channel statistics for
+                          normalization. If None, F.instance_norm is used (training).
+                          Streaming mode passes EMA stats here to avoid wild fluctuations
+                          from computing statistics on only 8 frames.
+            f0_stats:     (src_mean, src_std, tgt_mean, tgt_std) as Python floats.
+                          If provided, voiced F0 is Z-score shifted from the source
+                          speaker's pitch range to the target speaker's range before
+                          log1p — critical for cross-gender conversion.
+        Returns:
+            content: [B, T_frames, 769]  HuBERT(768) ‖ F0(1)
+        """
+        # Step 1: denoise (skipped in streaming — caller runs DFN on clean chunk only)
+        if skip_denoise:
+            audio = audio_16k
+        else:
+            audio = self._denoise(audio_16k)  # [B, T]
+
+        # Step 2: ContentVec features
+        hubert_feat = self._extract_contentvec(audio)  # [B, T_frames, 768]
+
+        # Step 3: F0
+        if f0_audio_16k is not None:
+            # Caller always provides clean/pre-denoised audio when passing f0_audio_16k.
+            # Denoising it separately would trigger a second enhance() GRU reset.
+            f0 = self._extract_f0(f0_audio_16k)
+        else:
+            f0 = self._extract_f0(audio)  # [B, T_frames, 1]
+
+        # Align lengths (HuBERT and crepe may differ by 1 frame at chunk edges)
+        T = min(hubert_feat.shape[1], f0.shape[1])
+        hubert_feat = hubert_feat[:, :T, :]
+        f0 = f0[:, :T, :]
+
+        # Step 4: normalise HuBERT to strip residual speaker timbre.
+        # Training: F.instance_norm over the full sequence gives stable per-sample,
+        #   per-channel statistics (mean=0, std=1 across time).
+        # Streaming: only 8 frames → instance_norm statistics are wildly unstable,
+        #   especially during silence. Use caller-provided EMA statistics instead.
+        if hubert_stats is not None:
+            hub_mean, hub_std = (
+                hubert_stats  # [1, 1, 768] each, broadcast over [B, T, 768]
+            )
+            hubert_norm = (hubert_feat - hub_mean) / (hub_std + 1e-5)
+        elif lengths is not None:
+            # Masked instance normalization (prevents zero-padding from contaminating stats)
+            B, T_frames, C_dim = hubert_feat.shape
+            # Calculate valid frame lengths (matches torchaudio hubert stride 320)
+            frame_lengths = [(L // self.HOP) + 1 for L in lengths]
+
+            mask = torch.zeros(B, T_frames, device=hubert_feat.device, dtype=torch.bool)
+            for i, flen in enumerate(frame_lengths):
+                mask[i, : min(flen, T_frames)] = True
+
+            hub_masked = hubert_feat * mask.unsqueeze(-1)
+            count = (
+                mask.sum(dim=1, keepdim=True).unsqueeze(-1).clamp(min=1)
+            )  # [B, 1, 1]
+
+            hub_mean = hub_masked.sum(dim=1, keepdim=True) / count  # [B, 1, 768]
+            hub_var = (((hubert_feat - hub_mean) ** 2) * mask.unsqueeze(-1)).sum(
+                dim=1, keepdim=True
+            ) / count
+            hub_std = torch.sqrt(hub_var + 1e-5)  # [B, 1, 768]
+
+            hubert_norm = (hubert_feat - hub_mean) / hub_std
+            hubert_norm = hubert_norm * mask.unsqueeze(-1)  # Re-zero the padding area
+        else:
+            hubert_norm = F.instance_norm(
+                hubert_feat.transpose(1, 2)  # [B, 768, T]
+            ).transpose(1, 2)  # [B, T, 768]
+
+        # Step 5: F0 speaker normalisation then log-scale.
+        # Training: no shift — source and target are the same utterance (self-reconstruction).
+        # Streaming: log-domain Z-score shift maps source speaker's pitch range to target's range.
+        #   Operates in log(Hz) so musical intervals (semitone ratios) are preserved exactly.
+        #   Unvoiced frames (f0 == 0) are left unchanged.
+        if f0_stats is not None:
+            src_log_mean, src_log_std, tgt_log_mean, tgt_log_std = f0_stats
+            voiced_mask = (f0 > 0.0).float()
+            # log of voiced frames; clamp to 1.0 for unvoiced (log→0, masked out anyway)
+            log_f0 = torch.log(f0.clamp(min=1.0))
+            log_f0_shifted = (log_f0 - src_log_mean) / (src_log_std + 1e-5) * tgt_log_std + tgt_log_mean
+            f0_shifted = torch.exp(log_f0_shifted).clamp(min=50.0, max=800.0)
+            f0 = voiced_mask * f0_shifted + (1.0 - voiced_mask) * f0
+
+        f0 = torch.log1p(f0)  # [0, 800] Hz → [0, ~6.7]
+        content = torch.cat([hubert_norm, f0], dim=-1)  # [B, T_frames, 769]
+        return content
+
+    @torch.no_grad()
+    def extract_streaming_stats(self, audio_16k: Tensor) -> tuple:
+        """
+        Extract raw HuBERT channel statistics and raw F0 in a single forward
+        pass for EMA tracking in the streaming pipeline.
+
+        Called once per chunk BEFORE convert_chunk_streaming() so the caller
+        can update EMA state and pass the accumulated stats back into the next
+        chunk's normalization — avoiding computing statistics on a tiny 8-frame
+        window inside forward().
+
+        Note: HuBERT and F0 also run inside the subsequent content_encoder.forward()
+        call. The small extra cost (~5 ms on GPU) is accepted to keep the EMA logic
+        self-contained in the caller without changing return types.
+
+        Args:
+            audio_16k: [1, T]  pre-denoised audio at 16 kHz (with overlap prefix)
+        Returns:
+            hub_mean: [1, 768]  per-channel mean across the T time frames
+            hub_std:  [1, 768]  per-channel std  (clamped ≥ 1e-4)
+            f0:       [1, T_frames, 1]  raw F0 in Hz  (0.0 = unvoiced)
+        """
+        hub = self._extract_contentvec(audio_16k)  # [1, T, 768]
+        hub_mean = hub.mean(dim=1)  # [1, 768]
+        hub_std = hub.std(dim=1).clamp(min=1e-4)  # [1, 768]
+        f0 = self._extract_f0(audio_16k)  # [1, T, 1]
+        return hub_mean, hub_std, f0

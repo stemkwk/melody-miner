@@ -1,0 +1,56 @@
+# melody-miner — pip dependencies (single env, validated on Windows + py3.12 + CUDA).
+#
+# Install order matters — use scripts/setup_env_windows.sh, or manually:
+#   python -m pip install -U pip setuptools wheel        # py3.12 needs new setuptools
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+#   pip install --only-binary=numpy -r requirements.txt  # keep numpy as a wheel (see below)
+#   pip install --no-deps basic-pitch==0.4.0             # see WHY below
+#
+# WHY the special flags (these ARE the fixes for the two dependency-conflict risks):
+#   • numpy --only-binary : a transitive pin can drag in an OLD numpy *sdist* whose
+#       build uses a setuptools that crashes on Python 3.12 (pkgutil.ImpImporter).
+#       Forcing the numpy wheel (1.26.1 already ships a cp312 wheel) avoids the build.
+#   • basic-pitch --no-deps (risk A): basic-pitch 0.4.0 hard-depends on tensorflow
+#       <2.15.1 for py>=3.11, and that TF has NO py3.12 wheel → uninstallable, and TF
+#       would also clash with torch/transformers. The ONNX model (nmp.onnx) SHIPS in
+#       the wheel, so we install basic-pitch without its deps and supply onnxruntime
+#       below; basic-pitch then auto-selects the ONNX backend (no TensorFlow needed).
+#   • transformers PINNED 4.46.3 : 4.49+ refuse torch.load(.bin) on torch<2.6
+#       (CVE-2025-32434). ContentVec (lengyue233/content-vec-best) ships as .bin, so
+#       newer transformers would raise. 4.46.3 predates the guard and loads it fine.
+#   • deepfilternet (risk B): OMITTED. Its `deepfilterlib` (Rust) has no Windows wheel.
+#       The content encoder guards its absence (denoise = passthrough), and training
+#       used skip_denoise anyway, so clean input is essentially unaffected. Install it
+#       only on Linux/WSL if you need denoising of noisy mic input.
+
+# ── shared / core ──────────────────────────────────────────────────────────
+numpy==1.26.1            # keep <2; install as wheel (see --only-binary above)
+scipy
+soundfile
+tqdm
+loguru
+pyyaml
+python-dotenv
+requests
+
+# ── Branch A: M2A accompaniment (m2a_transformer) ──────────────────────────
+miditoolkit>=1.0.0
+pretty_midi>=0.2.10
+mido>=1.2
+noisereduce              # optional --denoise
+pyfluidsynth             # MIDI → WAV (needs system FluidSynth + a .sf2 soundfont)
+pedalboard               # DSP chain (reverb/compressor/limiter)
+librosa>=0.10
+# basic-pitch backend deps (basic-pitch itself is installed --no-deps, see above):
+onnxruntime              # ONNX inference backend for basic-pitch (NOT tensorflow)
+mir_eval                 # basic-pitch runtime dep (note_creation)
+
+# ── Branch B: TNP voice conversion (tnp_voice_conversion/convert.py) ───────
+transformers==4.46.3     # PINNED — see CVE note above (HuBERT/ContentVec loader)
+torchcrepe               # F0 extraction (downloads 'tiny' model on first run)
+vocos==0.1.0             # vocoder (downloads charactr/vocos-mel-24khz on first run)
+sounddevice              # mic_convert (optional)
+# deepfilternet          # OMITTED on Windows — see risk B note above.
+
+# ── Demo UI (optional: app.py) ─────────────────────────────────────────────
+gradio>=4.0
