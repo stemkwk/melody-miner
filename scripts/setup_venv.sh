@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
-# melody-miner — reproducible venv setup (Linux / macOS / Windows Git Bash).
-# Creates .venv in the repo root and installs all deps in the correct order.
+# melody-miner — reproducible venv setup using uv (Linux / macOS / Windows Git Bash).
+# Installs uv if absent (via curl), then creates .venv and installs all deps.
 #
 # Usage (run from repo root):
 #   bash scripts/setup_venv.sh
-#
-# Override Python interpreter (must be 3.12):
-#   PYTHON=python3.12 bash scripts/setup_venv.sh
 #
 # CPU-only (no GPU):
 #   TORCH_INDEX=https://download.pytorch.org/whl/cpu bash scripts/setup_venv.sh
 set -euo pipefail
 
-PYTHON="${PYTHON:-python}"
 TORCH_INDEX="${TORCH_INDEX:-https://download.pytorch.org/whl/cu121}"
 
-# Detect platform for venv activate path
+# Platform-specific venv activate path (for the user's shell after this script)
 case "$OSTYPE" in
     msys* | cygwin* | win32*)
         ACTIVATE=".venv/Scripts/activate"
@@ -25,26 +21,42 @@ case "$OSTYPE" in
         ;;
 esac
 
-echo "[0/5] Creating .venv with $PYTHON"
-"$PYTHON" -m venv .venv
-# shellcheck disable=SC1090
-source "$ACTIVATE"
+# ── Install uv if absent ───────────────────────────────────────────────────────
+if ! command -v uv >/dev/null 2>&1; then
+    echo "[uv] Not found — downloading via curl..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    # The installer puts uv in ~/.local/bin (Linux/macOS) or ~/.cargo/bin (some setups).
+    # Add both to PATH so the rest of this script can find it immediately.
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "[error] uv still not found after install."
+        echo "  Open a new shell (PATH refresh) and re-run, or install manually:"
+        echo "  https://docs.astral.sh/uv/getting-started/installation/"
+        exit 1
+    fi
+fi
+echo "[uv] $(uv --version)"
 
-echo "[1/5] Upgrade pip / setuptools / wheel (py3.12 needs modern setuptools)"
-# Use `python -m pip` (not bare `pip`) to avoid Windows self-upgrade protection.
-python -m pip install -U pip setuptools wheel
+# ── Create venv (Python 3.12) ──────────────────────────────────────────────────
+# uv downloads Python 3.12 automatically if it isn't on the system.
+echo "[0/4] Creating .venv with Python 3.12"
+uv venv .venv --python 3.12
 
-echo "[2/5] PyTorch ($TORCH_INDEX)"
-python -m pip install torch torchaudio --index-url "$TORCH_INDEX"
+# Tell uv pip which venv to target (avoids needing to activate first).
+export VIRTUAL_ENV="$(pwd)/.venv"
 
-echo "[3/5] Core + Branch A + Branch B deps (numpy forced to wheel)"
-python -m pip install --only-binary=numpy -r requirements.txt
+# ── Python deps ────────────────────────────────────────────────────────────────
+echo "[1/4] PyTorch ($TORCH_INDEX)"
+uv pip install torch torchaudio --index-url "$TORCH_INDEX"
 
-echo "[4/5] basic-pitch WITHOUT its deps (avoids TensorFlow; ONNX backend auto-selected)"
-python -m pip install --no-deps "basic-pitch==0.4.0"
+echo "[2/4] Core + Branch A + Branch B deps (numpy forced to wheel)"
+uv pip install --only-binary=numpy -r requirements.txt
 
-echo "[5/5] melody-miner package (editable) + soundfont"
-python -m pip install -e . --no-deps
+echo "[3/4] basic-pitch WITHOUT its deps (avoids TensorFlow; ONNX backend auto-selected)"
+uv pip install --no-deps "basic-pitch==0.4.0"
+
+echo "[4/4] melody-miner package (editable) + soundfont"
+uv pip install -e . --no-deps
 
 mkdir -p soundfonts
 if ! ls soundfonts/*.sf2 >/dev/null 2>&1; then
