@@ -1,0 +1,41 @@
+# melody-miner — Docker Compose (GPU-capable, Gradio UI).
+#
+# Quick start:
+#   docker compose up --build
+#   open http://localhost:7860
+#
+# Requires:
+#   - Docker 24+ with the Compose plugin (docker compose, not docker-compose)
+#   - NVIDIA Container Toolkit for GPU support
+#     https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+#
+# CPU-only: remove the `deploy:` block below and change the PyTorch index URL
+# in the Dockerfile (cu121 → cpu).
+
+services:
+  melody-miner:
+    build: .
+    image: melody-miner:latest
+    ports:
+      - "7860:7860"
+    volumes:
+      # Bind-mount user-provided data so they survive container rebuilds.
+      # Checkpoints are downloaded from GitHub Releases and placed here.
+      - ./checkpoints:/app/checkpoints
+      - ./references:/app/references
+      - ./input:/app/input
+      - ./output:/app/output
+      - ./soundfonts:/app/soundfonts
+      # Named volume so HuggingFace model downloads (vocos, contentvec, torchcrepe)
+      # are cached across rebuilds and don't re-download on each `docker compose up`.
+      - hf_cache:/app/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  hf_cache:

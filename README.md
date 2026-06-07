@@ -29,21 +29,55 @@ checkpoints/tnp/      TNP best.pt (gitignore — checkpoints/tnp/README.md 참�
 references/           목표 화자 reference WAV (gitignore — references/README.md 참고)
 ```
 
-## 설치 (Windows + Python 3.12 + NVIDIA CUDA — 검증됨)
+## 설치
+
+세 가지 방법 중 하나를 선택하세요.
+
+### 방법 1 — venv (Linux / macOS / Windows Git Bash, 권장)
 ```bash
-bash scripts/setup_env_windows.sh        # pip만, conda/Rust 불필요
+# Python 3.12 필요. 다른 인터프리터: PYTHON=python3.12 bash scripts/setup_venv.sh
+bash scripts/setup_venv.sh
+source .venv/bin/activate          # Windows Git Bash: source .venv/Scripts/activate
 ```
-스크립트가 하는 일(수동으로도 동일):
+스크립트 내부 순서 (수동 설치 시 동일):
 ```bash
 python -m pip install -U pip setuptools wheel
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 pip install --only-binary=numpy -r requirements.txt   # numpy는 wheel 강제
 pip install --no-deps basic-pitch==0.4.0              # TF 없이 ONNX 백엔드
 pip install -e . --no-deps
-# + soundfonts/GeneralUser.sf2 (GM 사운드폰트, 없으면 fallback 다운로드)
+# 사운드폰트 없으면 스크립트가 fallback 다운로드
 ```
-> **Linux/conda 대안**: `conda env create -f environment.yml` (rust/ffmpeg 포함 →
-> deepfilternet까지 설치 가능). 자세한 핀·근거는 `requirements.txt` 상단 주석 참고.
+> CPU-only: `TORCH_INDEX=https://download.pytorch.org/whl/cpu bash scripts/setup_venv.sh`
+
+### 방법 2 — Docker (GPU 포함, NVIDIA Container Toolkit 필요)
+```bash
+# 체크포인트를 checkpoints/ 아래에 먼저 배치한 뒤:
+docker compose up --build
+# → http://localhost:7860 (Gradio UI)
+
+# CLI 실행:
+docker compose run --rm melody-miner run.py \
+    --input input/your_vocal.wav \
+    --m2a-checkpoint checkpoints/m2a/best.ckpt \
+    --tnp-checkpoint checkpoints/tnp/latest.pt \
+    --reference references/target.wav \
+    --out output/run1
+```
+> **GPU 없는 경우**: `Dockerfile` 안의 `--index-url` 을 `cu121` → `cpu` 로 변경하고
+> `docker-compose.yml` 의 `deploy: resources:` 블록을 제거하세요.
+
+### 방법 3 — conda (Linux, deepfilternet 포함 시)
+```bash
+conda env create -f environment.yml
+conda activate melody-miner
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install --only-binary=numpy -r requirements.txt
+pip install --no-deps basic-pitch==0.4.0
+pip install -e . --no-deps
+```
+> rust/ffmpeg가 conda로 설치되므로 deepfilternet 빌드도 가능.
+> 자세한 핀·근거는 `requirements.txt` 상단 주석 참고.
 
 ### ⚠️ 단일 환경 의존성 충돌 (해결 완료 — 이렇게 풀었음)
 한 env에 두 모델을 합칠 때 위험 2가지 + 보너스 1가지가 있었고, **end-to-end로 검증**해 해결했습니다:
