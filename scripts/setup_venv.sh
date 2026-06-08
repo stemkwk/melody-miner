@@ -61,9 +61,9 @@ uv pip install --no-deps "basic-pitch==0.4.0"
 
 mkdir -p soundfonts
 if ! ls soundfonts/*.sf2 >/dev/null 2>&1; then
-    echo "  Downloading fallback GM soundfont (low quality — replace with FluidR3_GM or GeneralUser)..."
+    echo "  Downloading GeneralUser GS soundfont (High Quality)..."
     curl -fL -o soundfonts/default.sf2 \
-        "https://github.com/FluidSynth/fluidsynth/raw/master/sf2/VintageDreamsWaves-v2.sf2" \
+        "https://archive.org/download/free-soundfonts-sf2-2019-04/GeneralUser%20GS%20v1.471.sf2" \
     || echo "  [warn] soundfont download failed — place any .sf2 in soundfonts/ for MIDI→WAV render"
 fi
 
