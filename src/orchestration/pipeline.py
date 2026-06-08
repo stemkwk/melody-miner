@@ -71,10 +71,6 @@ def run_full(
     acc: dict | None = None
     voc: dict | None = None
 
-    # ---- Branch A: accompaniment -------------------------------------------
-    if need_m2a:
-        with timed("Branch A - 반주 생성"):
-            acc = run_accompaniment(input_wav, model, out_dir, config.gen)
 
     # ---- Branch B: voice conversion ----------------------------------------
     vocal_post = None
@@ -96,6 +92,19 @@ def run_full(
                 saturation_db=config.mix.vocal_saturation_db)
             if vocal_post is not None:
                 logger.info(f"보컬 후처리(EQ/Reverb) → {vocal_post}")
+
+
+    # ---- Branch A: accompaniment -------------------------------------------
+    if need_m2a:
+        # 반주 생성에 사용할 입력 오디오 결정 (음성 변환이 완료되었다면 해당 결과를, 아니면 원본 입력 사용)
+        if voc is not None and "vocal_wav" in voc and voc["vocal_wav"]:
+            accomp_input = vocal_post if vocal_post else voc["vocal_wav"]
+        else:
+            accomp_input = input_wav
+
+        with timed("Branch A - 반주 생성"):
+            acc = run_accompaniment(accomp_input, model, out_dir, config.gen)
+
 
     # ---- Merge --------------------------------------------------------------
     # full → converted vocal (post-processed first) + accompaniment / m2a → original input (or rendered melody) + accompaniment / tnp → no mix

@@ -1,15 +1,14 @@
 # melody-miner
 
-하나의 **입력 WAV(노래/허밍)** 에서 두 갈래를 돌려 한 곡으로 합칩니다.
+하나의 **입력 WAV(노래/허밍)** 를 먼저 음성 변환한 뒤, 해당 결과를 바탕으로 반주를 생성하여 한 곡으로 합칩니다.
 
 ```
-                 ┌─ Branch A ─ WAV → MIDI 전사 → M2A Transformer 반주 생성 → 반주 WAV ─┐
-입력 WAV ──┤                                                                          ├─ 믹스 → 05_final_mix.wav
-                 └─ Branch B ─ WAV → TNP voice conversion(목표 화자) → 변환 보컬 WAV ───┘
+입력 WAV ──[Branch B: TNP 음성 변환]──→ 변환 보컬 WAV ──[Branch A: M2A 반주 생성]──→ 반주 WAV
+                                             │                                          │
+                                             └──────────────────(믹스)──────────────────┘→ 05_final_mix.wav
 ```
 
-두 브랜치는 **같은 입력 WAV에서 파생**되므로 입력의 t=0 타임라인을 공유합니다 →
-시간 워핑 없이 샘플레이트 정렬 + 길이 패딩만으로 동기화되어 믹스됩니다.
+음성 변환된 보컬을 기반으로 멜로디를 전사하고 반주를 생성하므로, 보컬과 반주가 더욱 자연스럽게 어우러집니다. (음성 변환을 생략하는 `m2a` 모드에서는 원본 입력 WAV를 바로 반주 생성에 사용합니다.)
 
 - **Branch A** = melody-to-accompaniment-transformer (M2A) — [`src/m2a_transformer/`](src/m2a_transformer/README.md)
 - **Branch B** = 음성 변환 모델 — [`src/tnp_voice_conversion/`](src/tnp_voice_conversion/README.md)
