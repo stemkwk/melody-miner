@@ -752,7 +752,7 @@ def main() -> None:
     if not midi_path.exists():
         logger.error(f"MIDI not found: {midi_path}"); sys.exit(1)
 
-    out_dir    = Path(args.out_dir) if args.out_dir else Path("output") / f"compare_{song_id}"
+    out_dir    = Path(args.out_dir) if args.out_dir else Path("analysis/compare_inference") / f"compare_{song_id}"
     midi_dir   = out_dir / "midi"
     wav_dir    = out_dir / "wav"
     metrics_dir= out_dir / "metrics"

@@ -102,13 +102,11 @@ def main() -> None:
                     help="변환할 입력 보컬. input/ 의 긴 실제 보컬을 권장.")
     ap.add_argument("--max-seconds", type=float, default=20.0,
                     help="긴 입력 트림 상한(초). 단일 패스 OOM 방지. 0=무제한.")
-    ap.add_argument("--out", default="analysis/diag")
+    ap.add_argument("--out", default="analysis/diagnose_vocoder_wobble")
     args = ap.parse_args()
 
-    import datetime
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = Path(args.out) / timestamp
+    out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"device={device}  source={Path(args.source).name}  out={out_dir}\n")
 

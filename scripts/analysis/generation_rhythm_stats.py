@@ -109,7 +109,21 @@ def main() -> None:
                          "Speeds up autoregressive generation for larger samples.")
     ap.add_argument("--avoid_penalty", type=float, default=None,
                     help="avoid-note soft penalty (harmonic lever; default cfg).")
+    ap.add_argument("--out", default="analysis/generation_rhythm_stats/report.txt")
     args = ap.parse_args()
+
+    import builtins
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    f_out = open(out_path, "w", encoding="utf-8")
+    _orig_print = builtins.print
+    def _print(*pargs, **kwargs):
+        _orig_print(*pargs, **kwargs)
+        if "file" not in kwargs:
+            kwargs["file"] = f_out
+            _orig_print(*pargs, **kwargs)
+            f_out.flush()
+    builtins.print = _print
 
     cfg = load_config(args.config)
     tok = build_tokenizer(cfg.tokenizer)
