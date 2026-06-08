@@ -37,6 +37,7 @@ def build_config(args) -> OrchestrationConfig:
         denoise=args.denoise,
         cond_tracks=[t.strip() for t in args.cond_tracks.split(",") if t.strip()],
         transcriber=args.transcriber,
+        tempo_override=args.bpm if args.bpm > 0 else None,
     )
     mix = MixParams(
         target_sr=args.target_sr,
@@ -75,6 +76,7 @@ def main() -> None:
                    type=float, default=None)
     p.add_argument("--transcriber", choices=["basic-pitch", "crepe"], default="basic-pitch",
                    help="WAV→MIDI 전사기. crepe=단성(솔로 보컬 분절 적음).")
+    p.add_argument("--bpm", type=float, default=0.0, help="강제할 템포 BPM. 0이면 기본 120 (또는 MIDI 원본) 사용.")
     p.add_argument("--denoise", action="store_true", help="전사 전 노이즈 제거")
     p.add_argument("--cond-tracks", dest="cond_tracks", default="melody")
     # mixing params

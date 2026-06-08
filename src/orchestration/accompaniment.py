@@ -187,6 +187,7 @@ def run_accompaniment(
             melody_midi=cond_midi,
             cfg=cfg, lit=lit, tokenizer=tokenizer,
             cond_tracks=gen.cond_tracks,
+            tempo_override=gen.tempo_override,
             temperature=gen.temperature,
             top_p=gen.top_p,
             top_k=gen.top_k,

@@ -203,8 +203,23 @@ _OUT7 = (None,) * 6 + ("",)  # melody, accomp, vocal, final, melody_midi, accomp
 def _err(msg: str):
     return (None,) * 6 + (msg,)
 
+def tap_tempo(times):
+    import time
+    now = time.time()
+    if times and now - times[-1] > 2.0:
+        times = []
+    times.append(now)
+    if len(times) >= 2:
+        intervals = [times[i] - times[i-1] for i in range(1, len(times))]
+        avg_interval = sum(intervals) / len(intervals)
+        bpm = round(60.0 / avg_interval)
+        bpm = max(40, min(240, bpm))
+        return bpm, times
+    import gradio as gr
+    return gr.update(), times
 
-def _run(input_wav, midi_file, references, mode_label, transcriber,
+
+def _run(input_wav, midi_file, references, mode_label, transcriber, bpm_val,
          denoise, temperature, top_p, cfg_w, avoid, outname, postprocess,
          mel_sharpen, sharpen_t, sharpen_f, saturation_db):
     mode = _MODE_LABELS.get(mode_label, "full")
@@ -233,7 +248,8 @@ def _run(input_wav, midi_file, references, mode_label, transcriber,
         references=refs,
         gen=GenParams(temperature=temperature, top_p=top_p, cfg_w=cfg_w,
                       avoid_note_penalty=avoid, denoise=denoise,
-                      transcriber=transcriber),
+                      transcriber=transcriber,
+                      tempo_override=bpm_val if bpm_val > 0 else None),
         voice=VoiceParams(mel_sharpen=mel_sharpen,
                           sharpen_t_alpha=sharpen_t, sharpen_f_alpha=sharpen_f),
         mix=MixParams(postprocess_vocal=postprocess,
@@ -328,6 +344,11 @@ def build_ui() -> "gr.Blocks":
                         label="WAV→MIDI 전사기",
                         info="basic-pitch=다성 AMT · crepe=단성(솔로 보컬 분절 적음)",
                     )
+                    with gr.Row():
+                        bpm_slider = gr.Slider(0, 240, step=1, value=0, label="템포 BPM", info="0 = 기본(120) 또는 입력 MIDI 템포 유지")
+                        tap_btn = gr.Button("👆 Tap Tempo", min_width=100)
+                        tap_state = gr.State([])
+                        tap_btn.click(fn=tap_tempo, inputs=tap_state, outputs=[bpm_slider, tap_state])
                     denoise = gr.Checkbox(label="전사 전 노이즈 제거", value=False)
                     temperature = gr.Slider(0.5, 2.0, step=0.05, value=1.0, label="Temperature")
                     top_p = gr.Slider(0.5, 1.0, step=0.01, value=0.95, label="Top-p")
@@ -377,10 +398,10 @@ def build_ui() -> "gr.Blocks":
         )
 
         btn.click(
-            fn=lambda i, mf, rf, m, tr, d, t, p, c, a, o, pp, ms, st, sfa, sat:
-                _run(i, _midi_path(mf), _paths(rf), m, tr, d, t, p, c, a, o, pp,
+            fn=lambda i, mf, rf, m, tr, bpm, d, t, p, c, a, o, pp, ms, st, sfa, sat:
+                _run(i, _midi_path(mf), _paths(rf), m, tr, bpm, d, t, p, c, a, o, pp,
                      ms, st, sfa, sat),
-            inputs=[inp, midi_in, refs, mode, transcriber,
+            inputs=[inp, midi_in, refs, mode, transcriber, bpm_slider,
                     denoise, temperature, top_p, cfg_w, avoid, outname, postprocess,
                     mel_sharpen, sharpen_t, sharpen_f, saturation],
             outputs=[melody_out, accomp_out, vocal_out, final_out,

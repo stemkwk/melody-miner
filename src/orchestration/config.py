@@ -27,6 +27,7 @@ class GenParams:
     denoise: bool = False
     cond_tracks: list[str] = field(default_factory=lambda: ["melody"])
     transcriber: str = "basic-pitch"   # WAV→MIDI: "basic-pitch" | "crepe"
+    tempo_override: float | None = None
 
 
 @dataclass
