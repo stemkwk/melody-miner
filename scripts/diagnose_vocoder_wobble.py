@@ -102,7 +102,7 @@ def main() -> None:
                     help="변환할 입력 보컬. input/ 의 긴 실제 보컬을 권장.")
     ap.add_argument("--max-seconds", type=float, default=20.0,
                     help="긴 입력 트림 상한(초). 단일 패스 OOM 방지. 0=무제한.")
-    ap.add_argument("--out", default="output/diag")
+    ap.add_argument("--out", default="analysis/diag")
     args = ap.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
