@@ -268,7 +268,6 @@ def _visibility(mode_label):
     return (
         gr.update(visible=(mode == "m2a")),   # midi_in (MIDI input only in m2a)
         gr.update(visible=tnp_on),            # refs
-        gr.update(visible=tnp_on),            # ref_preview
         gr.update(visible=tnp_on),            # tnp_params group
         gr.update(visible=m2a_on),            # m2a_params group
         gr.update(visible=m2a_on),            # melody_out
@@ -309,9 +308,8 @@ def build_ui() -> "gr.Blocks":
                                type="filepath")
                 midi_in = gr.File(label="또는 입력 MIDI (M2A만 - 전사 생략, MIDI→MIDI 검증)",
                                   file_types=[".mid", ".midi"], visible=False)
-                refs = gr.File(label="목표 화자 reference WAV (TNP/전체 모드, 여러 개 가능)",
-                               file_count="multiple", file_types=[".wav", ".flac"])
-                ref_preview = gr.Audio(label="첫 번째 레퍼런스 미리듣기", interactive=False, visible=True)
+                refs = gr.Audio(label="목표 화자 reference 음성 (TNP/전체 모드)",
+                                sources=["upload", "microphone"], type="filepath")
                 with gr.Group() as tnp_params:
                     gr.Markdown("**음성 변환 파라미터 (TNP)**")
                     mel_sharpen = gr.Checkbox(
@@ -356,26 +354,24 @@ def build_ui() -> "gr.Blocks":
 
         # references comes in as list of temp file objects → paths
         def _paths(files):
-            return [f.name if hasattr(f, "name") else f for f in (files or [])]
+            if not files:
+                return []
+            if isinstance(files, str):
+                return [files]
+            return [f.name if hasattr(f, "name") else f for f in files]
 
         def _midi_path(f):
             return f.name if (f is not None and hasattr(f, "name")) else f
-            
-        def _preview_ref(files):
-            if files and len(files) > 0:
-                f = files[0]
-                return _safe_path(f.name if hasattr(f, "name") else f)
-            return None
 
         # On upload, replace the input audio with a URL-safe copy so its preview
         # plays even when the original filename has #, &, … (server still works).
         inp.upload(fn=_safe_path, inputs=inp, outputs=inp)
-        refs.change(fn=_preview_ref, inputs=refs, outputs=ref_preview)
+        refs.upload(fn=_safe_path, inputs=refs, outputs=refs)
 
         # mode → toggle visibility
         mode.change(
             fn=_visibility, inputs=mode,
-            outputs=[midi_in, refs, ref_preview, tnp_params, m2a_params,
+            outputs=[midi_in, refs, tnp_params, m2a_params,
                      melody_out, accomp_out,
                      vocal_out, final_out, melody_midi_out, accomp_midi_out],
         )
