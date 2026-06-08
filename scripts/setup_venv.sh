@@ -46,17 +46,18 @@ uv venv .venv --python 3.12
 export VIRTUAL_ENV="$(pwd)/.venv"
 
 # ── Python deps ────────────────────────────────────────────────────────────────
-echo "[1/4] PyTorch ($TORCH_INDEX)"
+echo "[1/3] PyTorch ($TORCH_INDEX)"
 uv pip install torch torchaudio --index-url "$TORCH_INDEX"
 
-echo "[2/4] Core + Branch A + Branch B deps (numpy forced to wheel)"
-uv pip install --only-binary=numpy -r requirements.txt
+echo "[2/3] All deps from pyproject.toml (numpy forced to wheel)"
+# --only-binary=numpy: force pre-built wheel for numpy to avoid sdist build crash on py3.12.
+# See pyproject.toml [project.dependencies] header for why torch and basic-pitch are absent.
+uv pip install --only-binary=numpy -e .
 
-echo "[3/4] basic-pitch WITHOUT its deps (avoids TensorFlow; ONNX backend auto-selected)"
+echo "[3/3] basic-pitch without its deps (avoids TensorFlow; ONNX backend auto-selected)"
+# --no-deps: basic-pitch 0.4.0 hard-requires tensorflow<2.15.1 (no py3.12 wheel).
+# The ONNX model ships in the wheel; onnxruntime (already installed above) handles inference.
 uv pip install --no-deps "basic-pitch==0.4.0"
-
-echo "[4/4] melody-miner package (editable) + soundfont"
-uv pip install -e . --no-deps
 
 mkdir -p soundfonts
 if ! ls soundfonts/*.sf2 >/dev/null 2>&1; then

@@ -38,9 +38,8 @@ source .venv/bin/activate           # Windows Git Bash: source .venv/Scripts/act
 스크립트 내부 순서 (수동 설치 시 동일):
 ```bash
 uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
-uv pip install --only-binary=numpy -r requirements.txt   # numpy는 wheel 강제
+uv pip install --only-binary=numpy -e .   # pyproject.toml 의존성 전체 + numpy wheel 강제
 uv pip install --no-deps basic-pitch==0.4.0              # TF 없이 ONNX 백엔드
-uv pip install -e . --no-deps
 # 사운드폰트 없으면 스크립트가 fallback 다운로드
 ```
 > CPU-only: `TORCH_INDEX=https://download.pytorch.org/whl/cpu bash scripts/setup_venv.sh`

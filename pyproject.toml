@@ -6,23 +6,68 @@ build-backend = "setuptools.build_meta"
 name = "melody_miner"
 version = "0.1.0"
 description = "WAV → (M2A accompaniment generation ∥ TNP voice conversion) → single mix."
-requires-python = ">=3.10"
-# Heavy ML deps are pinned in requirements.txt / environment.yml so this stays
-# index-agnostic (torch CUDA build is installed separately). These are the
-# light glue deps the orchestrator itself imports.
+requires-python = ">=3.12"
 dependencies = [
-    "numpy<2",
-    "scipy",
-]
+    # ── Special-case packages NOT listed here — handled by scripts/setup_venv.sh ──
+    #
+    #   torch + torchaudio
+    #     Reason: CUDA build requires --index-url https://download.pytorch.org/whl/cu121
+    #             (or cu128/cpu). Cannot be expressed in pyproject.toml portably.
+    #     setup_venv.sh step 1: uv pip install torch torchaudio --index-url $TORCH_INDEX
+    #
+    #   basic-pitch==0.4.0
+    #     Reason: basic-pitch 0.4.0 hard-depends on tensorflow<2.15.1 for py>=3.11,
+    #             which has no py3.12 wheel and conflicts with torch/transformers.
+    #             The ONNX model ships inside the wheel, so --no-deps skips TF entirely
+    #             and basic-pitch auto-selects the ONNX backend via onnxruntime (below).
+    #     setup_venv.sh step 3: uv pip install --no-deps basic-pitch==0.4.0
+    #
+    #   numpy (listed below but needs --only-binary flag)
+    #     Reason: a transitive sdist build of old numpy crashes on py3.12 setuptools.
+    #             numpy 1.26.1 ships a cp312 wheel; forcing wheel avoids the sdist path.
+    #     setup_venv.sh step 2: uv pip install --only-binary=numpy -e .
 
-[project.optional-dependencies]
-demo = ["gradio>=4.0", "librosa"]
+    # ── core ──────────────────────────────────────────────────────────────────
+    "numpy==1.26.1",        # keep <2; wheel install enforced in setup_venv.sh
+    "scipy",
+    "soundfile",
+    "tqdm",
+    "loguru",
+    "pyyaml",
+    "python-dotenv",
+    "requests",
+
+    # ── Branch A: M2A accompaniment ───────────────────────────────────────────
+    "miditoolkit>=1.0.0",
+    "pretty_midi>=0.2.10",
+    "mido>=1.2",
+    "noisereduce",
+    "pyfluidsynth",         # MIDI → WAV render (needs system FluidSynth + a .sf2)
+    "pedalboard",           # DSP chain (reverb / compressor / limiter)
+    "librosa>=0.10",
+    # basic-pitch runtime deps (basic-pitch itself installed via --no-deps — see above):
+    "onnxruntime",          # ONNX inference backend for basic-pitch (NOT tensorflow)
+    "mir_eval",             # note_creation runtime dep
+
+    # ── Branch B: TNP voice conversion ────────────────────────────────────────
+    "transformers==4.46.3", # PINNED: 4.49+ blocks torch.load(.bin) via CVE-2025-32434;
+                            # ContentVec (lengyue233/content-vec-best) ships as .bin
+    "torchcrepe",           # F0 extraction (downloads 'tiny' model on first run)
+    "vocos==0.1.0",         # vocoder (downloads charactr/vocos-mel-24khz on first run)
+    "sounddevice",          # mic input (optional)
+    # deepfilternet: OMITTED — no Windows wheel (Rust extension, deepfilterlib).
+    #   Content encoder guards its absence with passthrough; not needed for clean input.
+    #   Linux/WSL only: pip install deepfilternet
+
+    # ── Demo UI ───────────────────────────────────────────────────────────────
+    "gradio>=4.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-# NOTE: src/m2a_transformer and src/tnp_voice_conversion are
-# NOT installed as packages — they are added to sys.path at runtime by
-# src/orchestration/__init__.py so the vendored sources stay byte-for-byte copies.
+# NOTE: src/m2a_transformer and src/tnp_voice_conversion are NOT installed as packages —
+# they are added to sys.path at runtime by src/orchestration/__init__.py so the
+# vendored sources stay byte-for-byte copies.
 
 [tool.setuptools.package-dir]
 "" = "src"
