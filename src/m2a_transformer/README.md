@@ -211,9 +211,7 @@ melody-miner/                           ← 모노레포 루트
 │   │   └── package_for_server.py       # 서버 업로드용 경량 번들 자동 패키징
 │   └── analysis/
 │       ├── compare_inference.py        # 학술 연구용 파라미터별 생성 결과 비교/시각화 도구
-│       ├── generation_rhythm_stats.py  # 자기회귀 생성 리듬/화성 통계 진단 도구
-│       ├── inspect_data.py             # 인코딩/증강된 데이터를 시각적 MIDI로 복원하여 사전 청취 검사
-│       └── controllability_sweep.py    # 제어 파라미터 변화에 따른 음악 지표 추이 통계 도출
+│       └── generation_rhythm_stats.py  # 자기회귀 생성 리듬/화성 통계 진단 도구
 ├── tests/
 │   ├── test_basics.py                  # 토크나이저 왕복(Round-trip) 및 모델 포워드 기본 검사
 │   ├── test_dynamics.py                # 다이내믹 변경 테스트
@@ -236,9 +234,6 @@ melody-miner/                           ← 모노레포 루트
 | **Polyphony Rate** | 시간 노드 당 두 개 이상의 음표가 동시에 발생하는 확률(화음 비율). | 단선율 고착화 현상의 성공적 극복 증명 |
 | **Onset Jaccard Similarity** | 실제 곡과 생성된 곡 간의 리듬 타격 시점(Onset Grid)의 합집합 대비 교집합 비율. | 리듬적 밀도와 그루브(Groove) 일치성 측정 |
 | **Perplexity (PPL)** | 다음 토큰 예측의 불확실도 계수. 낮을수록 음악적 문법을 정확히 이해하고 있음을 뜻함. | 언어 모델링의 수치적 성능 보장 |
-
-### 📈 Controllability Trend (제어 가능성 분석)
-`scripts/analysis/controllability_sweep.py`를 통해 `structural_suppression` 파라미터를 점진적으로 올림에 따라, 무작위 잡음이 아닌 **실제 Polyphony Rate 지표가 비례하여 상승하는 상관관계**를 레이더 차트 및 꺾은선 그래프로 시각화하여 제출할 수 있습니다. 이는 연구자의 의도대로 모델이 결정론적으로 조절됨을 증명하는 강력한 근거가 됩니다.
 
 ---
 
