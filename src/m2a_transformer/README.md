@@ -9,13 +9,14 @@
 
 - [1. Background & Paradigm Shift: Why Symbolic?](#-1-background--paradigm-shift-why-symbolic)
 - [2. Key Architecture & Design Innovations](#-2-key-architecture--design-innovations)
-- [3. Workspace Repository Layout](#-3-workspace-repository-layout)
-- [4. Academic Evaluation & Metrics Framework](#-4-academic-evaluation--metrics-framework)
-- [5. 처음 시작하는 분 — Docker 학습 가이드](#-5-처음-시작하는-분--docker-학습-가이드)
-- [6. Quickstart & Essential Workflows](#-6-quickstart--essential-workflows)
-- [7. Pluggable Registry System: Extensibility](#-7-pluggable-registry-system-extensibility)
-- [8. Comparative Landscape & Technical Analysis](#-8-comparative-landscape--technical-analysis-차별점-및-한계-분석)
-- [9. main 브랜치 대비 핵심 설계 변경](#-9-main-브랜치-대비-핵심-설계-변경-branch-design-changes)
+- [3. Development History & Troubleshooting (기술적 한계 극복 과정)](#-3-development-history--troubleshooting-기술적-한계-극복-과정)
+- [4. Workspace Repository Layout](#-4-workspace-repository-layout)
+- [5. Academic Evaluation & Metrics Framework](#-5-academic-evaluation--metrics-framework)
+- [6. 처음 시작하는 분 — Docker 학습 가이드](#-6-처음-시작하는-분--docker-학습-가이드)
+- [7. Quickstart & Essential Workflows](#-7-quickstart--essential-workflows)
+- [8. Pluggable Registry System: Extensibility](#-8-pluggable-registry-system-extensibility)
+- [9. Comparative Landscape & Technical Analysis](#-9-comparative-landscape--technical-analysis-차별점-및-한계-분석)
+- [10. main 브랜치 대비 핵심 설계 변경](#-10-main-브랜치-대비-핵심-설계-변경-branch-design-changes)
 - [부록: 노출 편향 진단과 교정](#부록-멜로디-조건부-반주-생성--노출-편향-진단과-교정)
 
 ---
@@ -137,7 +138,34 @@ graph LR
 
 ---
 
-## 📁 3. Workspace Repository Layout
+## 📜 3. Development History & Troubleshooting (기술적 한계 극복 과정)
+
+본 프로젝트의 M2A(Melody-to-Accompaniment) 모델은 오디오 생성의 한계를 극복하고 심볼릭 생성으로 전환한 뒤에도, 딥러닝과 자기회귀(Autoregressive) 생성 모델의 본질적인 한계점들을 단계적으로 극복하며 발전했습니다. 다음은 그 핵심적인 기술적 진화 과정입니다.
+
+### Phase 1: 패러다임 전환 및 토큰 구조 설계
+* **문제 인식**: Raw 오디오 파형은 시계열 데이터로서 너무 길어 다루기 어렵고, Mel-spectrogram 기반의 생성 방식은 위상 손실(Phase Loss) 문제와 더불어 일대다(One-to-Many) 맵핑의 모호성으로 인해 스펙트로그램이 뭉개지는 회귀 붕괴 현상이 치명적이었습니다.
+* **해결 (Symbolic 전환 및 화성/리듬 분리)**: 오디오 대신 기호화된 악보 데이터인 MIDI를 Transformer로 생성하는 방향으로 피벗(Pivot)했습니다. 
+  * **화성적 부호화**: 음악이 조옮김(Key Shift)에 대해 동형적(Isomorphic)이라는 점에 착안, 코드(Chord)와 상대적 음도(Chroma)를 분리 표현하여 Key Shift에 대해 불변(Invariant)하도록 토큰을 설계했습니다.
+  * **리듬적 부호화**: 1마디를 16분절 단위(16th notes grid)로 분할하여 특정 위치(Position)에 노트(Note)를 쌓을 수 있는 격자 구조를 채택했습니다.
+
+### Phase 2: 장기 기억력 한계와 Temporal Interleaving
+* **문제 발생**: 초기 학습 시 멜로디 시퀀스 전체를 입력받은 후 반주 시퀀스를 통째로 생성하도록 설계했으나, 컨텍스트가 길어지며 모델의 장기 기억력(Long-term memory) 저하로 인해 생성된 반주가 직전 멜로디의 화성적 맥락을 제대로 추적하지 못했습니다.
+* **해결**: 멜로디와 반주 토큰을 분리하지 않고 동일한 시간적 위치(Position)에서 교대로 등장하게 묶는 **시간적 인터리빙(Temporal Interleaving)** 포맷을 도입했습니다. 이를 통해 모델이 반주를 예측할 때 동시간대의 멜로디를 즉각적으로 추적(Causal Tracking)할 수 있도록 구조를 변경했습니다.
+
+### Phase 3: 단선율 고착화 문제와 Polyphony Hack
+* **문제 발생**: Temporal Interleaving 도입 후, 모델이 동일한 Position 내에서 여러 화음을 쌓지 못하고 오로지 시간 축(Next Position)으로만 전진하려는 단선율 고착 문제가 관찰되었습니다.
+* **해결**: 학습 시 다성부 생성을 강제하기 위해 화음을 쌓는 위치(동일 Position 내 연속된 Note 생성)에 대한 손실 가중치를 2배(`polyphony_loss_boost`)로 상향 조정하여, 모델이 자발적으로 다성부 반주 구조를 학습하도록 유도했습니다.
+
+### Phase 4: 노출 편향(Exposure Bias)과 1박자 붕괴 현상 극복
+* **문제 발생**: 다성부 반주 생성을 유도한 결과, 모델이 1박자에 모든 코드를 쏟아내고 이후 2~4박자 구간에서는 어떠한 음도 생성하지 못하는 **붕괴(Beat-1 Collapse) 현상**이 발생했습니다. 정답을 제공하는 교사 강요(Teacher-forcing) 기반의 학습 평가 지표(`val_loss`)상에서는 모델이 정상적으로 작동하는 것처럼 보였으나, 실제 자기회귀(Autoregressive) 생성 환경에서는 스스로의 오차가 누적되며 붕괴되는 노출 편향(Exposure Bias) 문제가 확인되었습니다.
+* **해결**:
+  1. **독자적 진단 도구 개발**: 기존 `val_loss`가 리듬적 관점에서 무의미하다고 판단, 1마디 내 음의 분산도를 측정하는 새로운 자기회귀 기반 진단 도구를 생성했습니다.
+  2. **Scheduled Sampling 도입**: 학습 중 모델 자신이 예측한 값을 다음 스텝의 입력으로 다시 제공하는 스케줄드 샘플링을 도입하여, 모델이 추론 시 발생하는 자체 오차에서 스스로 회복하도록 추가적인 파인튜닝(Fine-tuning)을 수행했습니다.
+  3. **A/B 테스트 기반 가중치 선정**: 매 에포크마다 음악을 실제 생성한 뒤 새로운 진단 도구를 통해 분산도를 1차 필터링하고, 적절한 분산을 가진 가중치를 대상으로 정성적 청음(A/B 테스트)을 거쳐 최종 체크포인트를 결정했습니다.
+
+---
+
+## 📁 4. Workspace Repository Layout
 
 리포지토리 내 주요 파일 및 디렉터리 구조와 역할입니다.
 
@@ -174,6 +202,7 @@ melody-miner/                           ← 모노레포 루트
 │   ├── prepare_data.py                 # POP909 / Lakh / Slakh MIDI → 전처리 토큰(.pt) 저장
 │   ├── train.py                        # GPU 최적화 PyTorch Lightning Trainer 학습 실행기
 │   ├── inference.py                    # 보컬 멜로디 MIDI 입력에 대해 실시간 피아노 반주 생성 스크립트
+│   ├── visualize_piano_roll.py         # 멜로디와 생성된 반주의 피아노 롤 오버레이 시각화 스크립트
 │   ├── tools/
 │   │   ├── download_pop909.py          # POP909 데이터셋 자동 다운로드 및 구조 셋업 스크립트
 │   │   ├── download_lakh.py            # Lakh 데이터셋 유틸리티
@@ -184,7 +213,6 @@ melody-miner/                           ← 모노레포 루트
 │       ├── compare_inference.py        # 학술 연구용 파라미터별 생성 결과 비교/시각화 도구
 │       ├── generation_rhythm_stats.py  # 자기회귀 생성 리듬/화성 통계 진단 도구
 │       ├── inspect_data.py             # 인코딩/증강된 데이터를 시각적 MIDI로 복원하여 사전 청취 검사
-│       ├── sweep.py                    # 로컬 하이퍼파라미터 그리드/랜덤 스윕 오케스트레이터
 │       └── controllability_sweep.py    # 제어 파라미터 변화에 따른 음악 지표 추이 통계 도출
 ├── tests/
 │   ├── test_basics.py                  # 토크나이저 왕복(Round-trip) 및 모델 포워드 기본 검사
@@ -197,7 +225,7 @@ melody-miner/                           ← 모노레포 루트
 
 ---
 
-## 📊 4. Academic Evaluation & Metrics Framework
+## 📊 5. Academic Evaluation & Metrics Framework
 
 모델의 음악적 수준을 객관적으로 입증하기 위해 설계된 종합 정량 평가 체계입니다. `scripts/analysis/compare_inference.py`를 실행하면 모든 결과가 테이블 및 그래프로 자동 요약됩니다.
 
@@ -214,14 +242,14 @@ melody-miner/                           ← 모노레포 루트
 
 ---
 
-## 🐳 5. 처음 시작하는 분 — Docker 학습 가이드
+## 🐳 6. 처음 시작하는 분 — Docker 학습 가이드
 
 Docker와 딥러닝 환경 설정이 처음이라면 **[TRAINING_GUIDE.md](../../TRAINING_GUIDE.md)** 를 먼저 읽어주세요.  
 클론 → 자산 다운로드 → Docker 빌드 → 16GB VRAM 설정 → 체크포인트 재개까지 단계별로 안내합니다.
 
 ---
 
-## 🚀 6. Quickstart & Essential Workflows
+## 🚀 7. Quickstart & Essential Workflows
 
 ### A. 역할별 설치 (Extra Groups)
 
@@ -347,7 +375,7 @@ python scripts/tools/package_assets.py --preset data          # → jam_data_pro
 
 ---
 
-## 🔌 7. Pluggable Registry System: Extensibility
+## 🔌 8. Pluggable Registry System: Extensibility
 
 프로젝트 내부의 모든 핵심 컴포넌트(토크나이저, 모델, 옵티마이저, 스케줄러)는 데코레이터 패턴 기반의 레지스트리 시스템으로 캡슐화되어 있어, 다른 연구원들이 코드를 직접 수정하지 않고 설정 변경만으로 새로운 실험을 할 수 있습니다.
 
@@ -367,7 +395,7 @@ class MySuperTokenizer(BaseTokenizer):
 
 ---
 
-## ⚖️ 8. Comparative Landscape & Technical Analysis (차별점 및 한계 분석)
+## ⚖️ 9. Comparative Landscape & Technical Analysis (차별점 및 한계 분석)
 
 본 프로젝트(**Symbolic Jam Transformer**)가 기존 AI 작곡 패러다임과 비교하여 가지는 고유한 가치와 개선점, 그리고 공학적 한계점을 엄격하게 요약합니다.
 
@@ -389,7 +417,7 @@ class MySuperTokenizer(BaseTokenizer):
 
 ---
 
-## 🔀 9. main 브랜치 대비 핵심 설계 변경 (Branch Design Changes)
+## 🔀 10. main 브랜치 대비 핵심 설계 변경 (Branch Design Changes)
 
 `feat/single-stream-accompaniment` 브랜치는 main 브랜치에서 다음과 같은 구조적 설계 변경을 적용했습니다.
 
