@@ -105,8 +105,10 @@ def main() -> None:
     ap.add_argument("--out", default="analysis/diag")
     args = ap.parse_args()
 
+    import datetime
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    out_dir = Path(args.out)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = Path(args.out) / timestamp
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"device={device}  source={Path(args.source).name}  out={out_dir}\n")
 

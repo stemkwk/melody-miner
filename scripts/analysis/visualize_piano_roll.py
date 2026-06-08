@@ -87,7 +87,10 @@ if __name__ == "__main__":
         print("Error: No midi file provided and could not find any in output/")
         exit(1)
         
+    import datetime
     midi_data = pretty_midi.PrettyMIDI(args.midi)
-    out_path = Path(args.out)
+    base_out = Path(args.out)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_path = base_out.parent / timestamp / base_out.name
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    plot_piano_roll(midi_data, args.out)
+    plot_piano_roll(midi_data, str(out_path))
