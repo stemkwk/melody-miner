@@ -50,24 +50,7 @@ pip install -e . --no-deps
 ```
 > CPU-only: `TORCH_INDEX=https://download.pytorch.org/whl/cpu bash scripts/setup_venv.sh`
 
-### 방법 2 — Docker (GPU 포함, NVIDIA Container Toolkit 필요)
-```bash
-# 체크포인트를 checkpoints/ 아래에 먼저 배치한 뒤:
-docker compose up --build
-# → http://localhost:7860 (Gradio UI)
-
-# CLI 실행:
-docker compose run --rm melody-miner run.py \
-    --input input/your_vocal.wav \
-    --m2a-checkpoint checkpoints/m2a/best.ckpt \
-    --tnp-checkpoint checkpoints/tnp/latest.pt \
-    --reference references/target.wav \
-    --out output/run1
-```
-> **GPU 없는 경우**: `Dockerfile` 안의 `--index-url` 을 `cu121` → `cpu` 로 변경하고
-> `docker-compose.yml` 의 `deploy: resources:` 블록을 제거하세요.
-
-### 방법 3 — conda (Linux, deepfilternet 포함 시)
+### 방법 2 — conda (Linux, deepfilternet 포함 시)
 ```bash
 conda env create -f environment.yml
 conda activate melody-miner
