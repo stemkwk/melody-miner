@@ -80,7 +80,7 @@ def get_latest_midi():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate Piano Roll visualization from MIDI")
     parser.add_argument("--midi", default=get_latest_midi(), help="Path to the combined MIDI file (e.g., 03_accompaniment_full.mid)")
-    parser.add_argument("--out", default="analysis/piano_roll.png", help="Output image file path")
+    parser.add_argument("--out", default="analysis/piano_roll/piano_roll.png", help="Output image file path")
     args = parser.parse_args()
     
     if not args.midi:

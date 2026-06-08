@@ -11,13 +11,13 @@
   ```bash
   python scripts/visualize_piano_roll.py
   ```
-  별도의 인자를 주지 않으면 `output/` 폴더 내에 있는 가장 최근 작업물(`03_accompaniment_full.mid`)을 자동으로 찾아서 `analysis/piano_roll.png` 파일로 시각화합니다.
+  별도의 인자를 주지 않으면 `output/` 폴더 내에 있는 가장 최근 작업물(`03_accompaniment_full.mid`)을 자동으로 찾아서 `analysis/piano_roll/piano_roll.png` 파일로 시각화합니다.
 - **특정 파일 직접 분석**
   원하는 과거의 미디 파일이 있다면 `--midi` 파라미터로 지정할 수 있습니다.
   ```bash
   python scripts/visualize_piano_roll.py --midi "output/특정폴더/03_accompaniment_full.mid"
   ```
-- **분석 산출물 (`analysis/piano_roll.png`)**: 
+- **분석 산출물 (`analysis/piano_roll/piano_roll.png`)**: 
   - **빨간색 선**: 원본 입력 멜로디 트랙 (Input Melody)
   - **파란색 선**: 모델이 생성한 반주 트랙 (Generated Accompaniment)
 
