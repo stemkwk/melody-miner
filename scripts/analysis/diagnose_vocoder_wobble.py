@@ -28,7 +28,7 @@ Outputs (output/diag/):
 No retraining / weight changes. Single pass (no chunks). Trim long files with --max-seconds.
 
 Usage:
-  python scripts/diagnose_vocoder_wobble.py \
+  python scripts/analysis/diagnose_vocoder_wobble.py \
       --source "input/pop-female-vocal-clean-melody_144bpm_A_major.wav" \
       --reference references/context.wav \
       --max-seconds 20

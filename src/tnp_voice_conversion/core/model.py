@@ -106,7 +106,7 @@ class VoiceConversionModel(nn.Module):
     # mel (measured), which sounds "watery". Unsharp-masking in the log-mel
     # domain restores contrast toward real-mel statistics. It adds NO new
     # information — only re-sharpens what's present — so push just until
-    # artifacts appear (A/B tune via scripts/diagnose_vocoder_wobble.py).
+    # artifacts appear (A/B tune via scripts/analysis/diagnose_vocoder_wobble.py).
     # Disabled by default; enable + tune through these attributes.
     MEL_SHARPEN = False
     MEL_SHARPEN_T_ALPHA = 1.0   # temporal unsharp strength (frame-to-frame)

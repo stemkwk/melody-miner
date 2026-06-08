@@ -31,7 +31,7 @@ CHUNK_SAMPLES = 16_000 * 4  # 4-second chunks (content encoder runs at 16 kHz)
 # Inference-time mel sharpening — band-aid for predicted-mel over-smoothing.
 # The TNP regression mel carries ~0.5× temporal / ~0.7× spectral detail of real
 # mel ("watery"); unsharp-masking in the log-mel domain restores contrast.
-# Tune with scripts/diagnose_vocoder_wobble.py, then update these. False = off.
+# Tune with scripts/analysis/diagnose_vocoder_wobble.py, then update these. False = off.
 MEL_SHARPEN = True
 MEL_SHARPEN_T_ALPHA = 1.0   # temporal unsharp strength
 MEL_SHARPEN_F_ALPHA = 0.5   # spectral unsharp strength

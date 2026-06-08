@@ -34,7 +34,7 @@ class VoiceParams:
     """Branch B (TNP voice conversion) inference knobs.
 
     Mel sharpening is a band-aid for predicted-mel over-smoothing — see
-    ``VoiceConversionModel._sharpen_mel`` and scripts/diagnose_vocoder_wobble.py.
+    ``VoiceConversionModel._sharpen_mel`` and scripts/analysis/diagnose_vocoder_wobble.py.
     """
     mel_sharpen: bool = True
     sharpen_t_alpha: float = 1.0   # temporal unsharp strength
