@@ -9,8 +9,8 @@ references/*.wav
 references/*.flac
 
 # Run outputs / local input audio
-output/
-input/
+output/*
+input/*
 
 # Audio is never tracked (test inputs, stems, renders)
 *.wav
@@ -38,3 +38,6 @@ refactoring_plan.md
 !checkpoints/m2a/README.md
 !checkpoints/tnp/README.md
 !references/README.md
+!input/.gitkeep
+!output/.gitkeep
+!references/.gitkeep
