@@ -11,10 +11,12 @@
 두 브랜치는 **같은 입력 WAV에서 파생**되므로 입력의 t=0 타임라인을 공유합니다 →
 시간 워핑 없이 샘플레이트 정렬 + 길이 패딩만으로 동기화되어 믹스됩니다.
 
-- **Branch A** = melody-to-accompaniment-transformer (M2A) — `src/m2a_transformer/`
-- **Branch B** = 음성 변환 모델 — `src/tnp_voice_conversion/`
+- **Branch A** = melody-to-accompaniment-transformer (M2A) — [`src/m2a_transformer/`](src/m2a_transformer/README.md)
+- **Branch B** = 음성 변환 모델 — [`src/tnp_voice_conversion/`](src/tnp_voice_conversion/README.md)
 
 > 두 원본 프로젝트는 **소스 복사(vendoring)** 되어 있고 이 repo는 둘을 오케스트레이션만 합니다.
+
+각 모델의 아키텍처·학습·추론 세부 사항은 위 링크를 참조하세요. 이 README는 두 브랜치를 잇는 **오케스트레이션 레이어**만 다룹니다.
 
 
 ## 디렉터리
