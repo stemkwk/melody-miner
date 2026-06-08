@@ -10,13 +10,10 @@
 - [1. Background & Paradigm Shift: Why Symbolic?](#-1-background--paradigm-shift-why-symbolic)
 - [2. Key Architecture & Design Innovations](#-2-key-architecture--design-innovations)
 - [3. Development History & Troubleshooting (기술적 한계 극복 과정)](#-3-development-history--troubleshooting-기술적-한계-극복-과정)
-- [4. Workspace Repository Layout](#-4-workspace-repository-layout)
-- [5. Academic Evaluation & Metrics Framework](#-5-academic-evaluation--metrics-framework)
-- [6. 처음 시작하는 분 — Docker 학습 가이드](#-6-처음-시작하는-분--docker-학습-가이드)
-- [7. Quickstart & Essential Workflows](#-7-quickstart--essential-workflows)
-- [8. Pluggable Registry System: Extensibility](#-8-pluggable-registry-system-extensibility)
-- [9. Comparative Landscape & Technical Analysis](#-9-comparative-landscape--technical-analysis-차별점-및-한계-분석)
-- [10. main 브랜치 대비 핵심 설계 변경](#-10-main-브랜치-대비-핵심-설계-변경-branch-design-changes)
+- [4. Academic Evaluation & Metrics Framework](#-4-academic-evaluation--metrics-framework)
+- [5. Pluggable Registry System: Extensibility](#-5-pluggable-registry-system-extensibility)
+- [6. Comparative Landscape & Technical Analysis](#-6-comparative-landscape--technical-analysis-차별점-및-한계-분석)
+- [7. main 브랜치 대비 핵심 설계 변경](#-7-main-브랜치-대비-핵심-설계-변경-branch-design-changes)
 - [부록: 노출 편향 진단과 교정](#부록-멜로디-조건부-반주-생성--노출-편향-진단과-교정)
 
 ---
@@ -165,65 +162,7 @@ graph LR
 
 ---
 
-## 📁 4. Workspace Repository Layout
-
-리포지토리 내 주요 파일 및 디렉터리 구조와 역할입니다.
-
-```
-melody-miner/                           ← 모노레포 루트
-├── configs/
-│   ├── config.yaml                     # Single Source of Truth (SSOT) 모든 하이퍼파라미터 통합 관리
-│   ├── sweep_example.yaml              # 로컬 하이퍼파라미터 스윕 템플릿
-│   └── wandb_sweep.yaml                # Weights & Biases 베이지안 스윕 설정
-├── src/m2a_transformer/                ← 이 패키지 루트 (vendored)
-│   ├── __init__.py
-│   ├── config.py                       # YAML 환경 파일 → Python Dataclasses 검증 및 변환
-│   ├── tokenizer.py                    # REMI v1 핵심 토크나이저 (상대 화음 및 키 부호화 구현)
-│   ├── dataset.py                      # PyTorch Dataset 및 WeightedRandomSampler (소스 균형 샘플링)
-│   ├── model.py                        # RoPE(회전식 위치 임베딩) 기반 Decoder-only Transformer + Polyphony Hack
-│   ├── lightning_module.py             # PyTorch Lightning 학습 모듈, 토큰 타입별 가중 Cross-Entropy Loss
-│   ├── train_components.py             # Optimizer (Fused AdamW) & Cosine Scheduler 레지스트리
-│   ├── pipeline.py                     # 오디오 입력(기본 피치 변환) 및 최종 추론 통합 컨트롤 파이프라인
-│   ├── preprocessing/
-│   │   ├── chords.py                   # 코드 추출 및 화성 분석
-│   │   ├── lakh.py                     # Lakh 데이터셋 전처리
-│   │   ├── melody.py                   # 멜로디 추출 로직
-│   │   ├── pop909.py                   # POP909 데이터셋 전처리
-│   │   ├── shards.py                   # 샤드 인덱스 및 청크 관리
-│   │   ├── slakh.py                    # Slakh 데이터셋 전처리
-│   │   └── synthetic.py               # 합성 데이터 생성
-│   └── utils/
-│       ├── audio.py                    # 오디오 I/O 유틸리티
-│       ├── hardware.py                 # GPU/CPU 환경 감지
-│       ├── logger.py                   # Loguru 기반 멀티 싱크 로깅 시스템
-│       ├── midi_io.py                  # MIDI 읽기/쓰기 유틸리티
-│       └── overrides.py               # CLI 오버라이드 헬퍼
-├── scripts/
-│   ├── prepare_data.py                 # POP909 / Lakh / Slakh MIDI → 전처리 토큰(.pt) 저장
-│   ├── train.py                        # GPU 최적화 PyTorch Lightning Trainer 학습 실행기
-│   ├── inference.py                    # 보컬 멜로디 MIDI 입력에 대해 실시간 피아노 반주 생성 스크립트
-│   ├── visualize_piano_roll.py         # 멜로디와 생성된 반주의 피아노 롤 오버레이 시각화 스크립트
-│   ├── tools/
-│   │   ├── download_pop909.py          # POP909 데이터셋 자동 다운로드 및 구조 셋업 스크립트
-│   │   ├── download_lakh.py            # Lakh 데이터셋 유틸리티
-│   │   ├── download_slakh.py           # Slakh 데이터셋 유틸리티 (HF API 기반)
-│   │   ├── package_assets.py           # 대용량 바이너리 자산 zip 압축 공유 도구
-│   │   └── package_for_server.py       # 서버 업로드용 경량 번들 자동 패키징
-│   └── analysis/
-│       ├── compare_inference.py        # 학술 연구용 파라미터별 생성 결과 비교/시각화 도구
-│       └── generation_rhythm_stats.py  # 자기회귀 생성 리듬/화성 통계 진단 도구
-├── tests/
-│   ├── test_basics.py                  # 토크나이저 왕복(Round-trip) 및 모델 포워드 기본 검사
-│   ├── test_dynamics.py                # 다이내믹 변경 테스트
-│   └── test_integration.py            # 전처리 → 학습 → 추론 → 파일 생성의 엔드투엔드 통합 CI 테스트
-├── tools/fluidsynth/                   # 윈도우용 FluidSynth 실행 및 DLL 라이브러리 바이너리 내장
-├── bundles/                            # package_assets.py 결과물 보관 (zip/sha256, git 제외)
-└── pyproject.toml                      # 패키지 의존성 및 setuptools 메타데이터 정의
-```
-
----
-
-## 📊 5. Academic Evaluation & Metrics Framework
+## 📊 4. Academic Evaluation & Metrics Framework
 
 모델의 음악적 수준을 객관적으로 입증하기 위해 설계된 종합 정량 평가 체계입니다. `scripts/analysis/compare_inference.py`를 실행하면 모든 결과가 테이블 및 그래프로 자동 요약됩니다.
 
@@ -237,140 +176,7 @@ melody-miner/                           ← 모노레포 루트
 
 ---
 
-## 🐳 6. 처음 시작하는 분 — Docker 학습 가이드
-
-Docker와 딥러닝 환경 설정이 처음이라면 **[TRAINING_GUIDE.md](../../TRAINING_GUIDE.md)** 를 먼저 읽어주세요.  
-클론 → 자산 다운로드 → Docker 빌드 → 16GB VRAM 설정 → 체크포인트 재개까지 단계별로 안내합니다.
-
----
-
-## 🚀 7. Quickstart & Essential Workflows
-
-### A. 역할별 설치 (Extra Groups)
-
-| 역할 | 커맨드 |
-|---|---|
-| 학습 (서버) | `pip install -e ".[train,dev]"` |
-| 추론 CLI only | `pip install -e ".[render,audio]"` |
-| 웹 데모 | `pip install -e ".[render,audio,demo]"` |
-| 전체 (학습 + 추론 + 데모) | `pip install -e ".[train,dev,render,audio,demo]"` |
-
-> **pytorch-lightning**은 학습(`[train]`)에만 필요합니다. 추론·시연 환경에는 설치하지 않아도 됩니다.
-
----
-
-### B. 로컬 환경 초간단 실행 (1분 개발자 검증)
-
-```bash
-# 1. 의존성 패키지 및 개발용 유틸리티 설치 (학습 + 개발 도구)
-pip install -e ".[train,dev]"
-
-# 2. 인공합성 음악 데이터를 이용한 초고속 토큰 빌드
-python scripts/prepare_data.py --synthetic --num_songs 32 --out_dir data/processed
-
-# 3. 모델 정상 구동 검사를 위한 스모크 학습 (2 Epochs, 약 30초 소요)
-python scripts/train.py --epochs 2
-
-# 4. 테스트용 MIDI를 이용한 오디오 및 MIDI 반주 생성
-python scripts/inference.py --melody_midi tests/test_melody.mid --output out.mid
-
-# 5. 전체 유닛 및 엔드투엔드 통합 테스트 실행
-pytest -q
-```
-
----
-
-### C. 서버 환경 GPU 제로-바틀넥(Zero-Idle) 트레이닝 레시피
-GPU 클라우드를 대여할 때, 비싼 서버 비용이 낭비되지 않도록 모든 전처리 작업을 로컬(CPU)에서 마치고 서버로 전송하는 최적화 워크플로우입니다.
-
-```bash
-# [1] 로컬 PC에서 대용량 데이터셋 다운로드 및 전처리 (GPU 불필요)
-# POP909 (~수십 MB, GT 코드 주석 포함)
-python scripts/tools/download_pop909.py --out_dir data/raw/POP909
-python scripts/prepare_data.py --pop909_dir data/raw/POP909 --out_dir data/processed
-
-# Lakh (수 GB, 약 17,000곡 — melody coverage >= 20% 필터 자동 적용)
-python scripts/tools/download_lakh.py --out_dir data/raw/lmd_clean
-python scripts/prepare_data.py --lakh_dir data/raw/lmd_clean --out_dir data/processed
-
-# Slakh (~96MB, 전문 편곡 866곡 — HF_TOKEN 필요)
-python scripts/tools/download_slakh.py --out_dir data/raw/slakh2100
-python scripts/prepare_data.py --slakh_dir data/raw/slakh2100 --out_dir data/processed
-
-# [2] 서버 업로드용 미세 경량 번들 자동 패키징 (약 5MB 압축본 생성)
-python scripts/tools/package_for_server.py --out jam_tx_bundle.tgz
-```
-
-> [!TIP]
-> `_chunk_index.json` 덕분에 학습 시작 시 수천 개의 데이터 청크 로딩 속도가 $O(1)$로 최적화됩니다. 또한 `_dataset_meta.json`에 토크나이저 핑거프린트가 기록되어 설정 불일치로 인한 GPU 학습 오작동을 원천 방지합니다.
-
-```bash
-# [3] GPU 대여 서버에 전송 후 배포
-scp jam_tx_bundle.tgz user@gpu-server:~/
-ssh user@gpu-server
-
-tar -xzf jam_tx_bundle.tgz && cd melody-miner
-docker compose build
-
-# [4] 예산 및 VRAM 체크용 드라이런 실행 (필수 단계!)
-docker compose run --rm train python scripts/train.py --dry_run_steps 100
-
-# [5] 본격적인 멀티 GPU 200 Epochs 학습 시작
-docker compose run --rm train python scripts/train.py --epochs 200
-```
-
----
-
-### D. 📊 학술 비교 평가 실행기 (compare_inference.py)
-특정 곡에 대해 원본(GT) 반주와 다양한 설정(`T=1.0`, `T=0.7`, `CFG=2.0` 등)으로 생성된 반주의 품질 및 다이내믹을 한 번에 비교 분석합니다.
-
-```bash
-python scripts/analysis/compare_inference.py \
-    --song 001 \
-    --checkpoint checkpoints/m2a/best.ckpt \
-    --pop909_dir data/raw/POP909 \
-    --out_dir output/compare_001
-```
-
-#### 📥 출력 아티팩트 (`output/compare_001/`):
-* `midi/`: 원본 및 세대별 MIDI 파일들 (`01_ground_truth.mid`, `02_gen_cfg20.mid` 등)
-* `wav/`: `FluidSynth`로 렌더링된 WAV 파일들 (Pedalboard 패키지 설치 시 Reverb/Limiter 등 DSP 마스터링 추가 가능)
-* `wav/05_comparison.wav`: 비프음 신호와 함께 모든 사운드가 하나의 오디오 트랙으로 이어진 청감 평가용 트랙
-* `metrics/comparison_report.md`: PC Cosine, Onset Jaccard 등 모든 지표가 정리된 학술 마크다운 테이블
-* `metrics/plots/`: 논문 게재용 비교 시각화 그래프들 (**오각형 레이더 차트**, 피치 분포 히스토그램, 벨로시티 분포, 음장 분포 등)
-
----
-
-### E. 📦 대용량 바이너리 자산 패키징 및 공유 (package_assets.py)
-Git 관리에서 제외된 대용량 이진 자산들을 **역할별로 분리된 zip 파일**로 패키징해 GitHub Releases에 업로드합니다.  
-수신자는 목적에 맞는 파일만 선택적으로 다운로드할 수 있습니다.
-
-```bash
-# 학습 마일스톤마다 갱신 — 모델 가중치
-python scripts/tools/package_assets.py --preset checkpoints   # → jam_checkpoints.zip
-
-# 한 번만 업로드 — 피아노 음색 파일
-python scripts/tools/package_assets.py --preset soundfonts    # → jam_soundfonts.zip
-
-# 한 번만 업로드 — 전처리 완료된 학습 데이터
-python scripts/tools/package_assets.py --preset data          # → jam_data_processed.zip
-```
-
-| 파일 | 내용 | 필요한 경우 |
-|---|---|---|
-| `jam_checkpoints.zip` | `checkpoints/m2a/` | 항상 필요 |
-| `jam_soundfonts.zip` | `soundfonts/` | 반주 생성(추론) 시 필요 |
-| `jam_data_processed.zip` | `data/processed/` | 학습 재개 시 필요 |
-
-> raw 데이터(`data/raw/`)는 공개 데이터셋이므로 포함하지 않습니다.  
-> 수신자는 `scripts/tools/download_pop909.py` / `scripts/tools/download_lakh.py` / `scripts/tools/download_slakh.py` 로 직접 받습니다.
-
-#### 📥 수신자의 환경 복원
-모든 zip을 **저장소 루트 폴더에서 압축 해제**하면 `checkpoints/`, `soundfonts/`, `data/processed/` 가 자동으로 제자리에 생깁니다.
-
----
-
-## 🔌 8. Pluggable Registry System: Extensibility
+## 🔌 5. Pluggable Registry System: Extensibility
 
 프로젝트 내부의 모든 핵심 컴포넌트(토크나이저, 모델, 옵티마이저, 스케줄러)는 데코레이터 패턴 기반의 레지스트리 시스템으로 캡슐화되어 있어, 다른 연구원들이 코드를 직접 수정하지 않고 설정 변경만으로 새로운 실험을 할 수 있습니다.
 
@@ -390,7 +196,7 @@ class MySuperTokenizer(BaseTokenizer):
 
 ---
 
-## ⚖️ 9. Comparative Landscape & Technical Analysis (차별점 및 한계 분석)
+## ⚖️ 6. Comparative Landscape & Technical Analysis (차별점 및 한계 분석)
 
 본 프로젝트(**Symbolic Jam Transformer**)가 기존 AI 작곡 패러다임과 비교하여 가지는 고유한 가치와 개선점, 그리고 공학적 한계점을 엄격하게 요약합니다.
 
@@ -412,7 +218,7 @@ class MySuperTokenizer(BaseTokenizer):
 
 ---
 
-## 🔀 10. main 브랜치 대비 핵심 설계 변경 (Branch Design Changes)
+## 🔀 7. main 브랜치 대비 핵심 설계 변경 (Branch Design Changes)
 
 `feat/single-stream-accompaniment` 브랜치는 main 브랜치에서 다음과 같은 구조적 설계 변경을 적용했습니다.
 
@@ -622,18 +428,3 @@ best를 골랐다면 잘못된 모델을 선택했을 것이다. **자기회귀 
 
 이 작업의 핵심 교훈은, **자기회귀 생성 모델은 자기회귀 조건에서 측정·교정해야 한다**는 것이다.
 
-### 재현
-
-```bash
-pip install -e ".[train,dev]"
-
-# 학습 (워밍스타트 + 스케줄드 샘플링; 설정은 configs/config.yaml)
-python scripts/train.py --epochs 40 --init_weights <seed.ckpt>
-
-# 평가 (자기회귀 진단)
-python scripts/analysis/generation_rhythm_stats.py \
-    --checkpoint <ckpt> --pop909 <dir> -n 20 --max_bars 16
-
-# 데모
-python app.py --checkpoint <best-epoch=007.ckpt>
-```
