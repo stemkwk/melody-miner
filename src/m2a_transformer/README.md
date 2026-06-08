@@ -10,10 +10,12 @@
 - [1. Background & Paradigm Shift: Why Symbolic?](#-1-background--paradigm-shift-why-symbolic)
 - [2. Key Architecture & Design Innovations](#-2-key-architecture--design-innovations)
 - [3. Development History & Troubleshooting (기술적 한계 극복 과정)](#-3-development-history--troubleshooting-기술적-한계-극복-과정)
-- [4. Academic Evaluation & Metrics Framework](#-4-academic-evaluation--metrics-framework)
-- [5. Pluggable Registry System: Extensibility](#-5-pluggable-registry-system-extensibility)
-- [6. Comparative Landscape & Technical Analysis](#-6-comparative-landscape--technical-analysis-차별점-및-한계-분석)
-- [7. main 브랜치 대비 핵심 설계 변경](#-7-main-브랜치-대비-핵심-설계-변경-branch-design-changes)
+- [4. Module Directory Structure](#-4-module-directory-structure)
+- [5. Simple Usage: Python API](#-5-simple-usage-python-api)
+- [6. Academic Evaluation & Metrics Framework](#-6-academic-evaluation--metrics-framework)
+- [7. Pluggable Registry System: Extensibility](#-7-pluggable-registry-system-extensibility)
+- [8. Comparative Landscape & Technical Analysis](#-8-comparative-landscape--technical-analysis-차별점-및-한계-분석)
+- [9. main 브랜치 대비 핵심 설계 변경](#-9-main-브랜치-대비-핵심-설계-변경-branch-design-changes)
 - [부록: 노출 편향 진단과 교정](#부록-멜로디-조건부-반주-생성--노출-편향-진단과-교정)
 
 ---
@@ -162,7 +164,54 @@ graph LR
 
 ---
 
-## 📊 4. Academic Evaluation & Metrics Framework
+## 📁 4. Module Directory Structure
+
+이 디렉터리는 피아노 반주 생성을 위한 코어 모듈 공간입니다.
+
+```text
+src/m2a_transformer/
+├── config.py             # YAML 설정 검증 및 Dataclass 정의
+├── dataset.py            # PyTorch 데이터셋 및 가중 샘플러
+├── lightning_module.py   # PyTorch Lightning 학습 래퍼
+├── model.py              # RoPE 적용 Decoder-only Transformer 핵심
+├── pipeline.py           # 추론 파이프라인 (입력 → 모델 → 렌더링)
+├── tokenizer.py          # 상대적 화성 부호화(REMI) 토크나이저
+├── train_components.py   # 레지스트리 기반 옵티마이저 & 스케줄러
+├── preprocessing/        # 데이터 전처리 모듈 (Lakh, Slakh, POP909 등)
+└── utils/                # 오디오/MIDI 변환 및 로깅 유틸리티
+```
+
+---
+
+## 🚀 5. Simple Usage: Python API
+
+루트 시스템의 오케스트레이션 없이, `m2a_transformer` 코어만 단독으로 초기화하여 사용하는 방법입니다.
+
+```python
+from m2a_transformer.config import load_config
+from m2a_transformer.tokenizer import build_tokenizer
+from m2a_transformer.model import SymbolicTransformer
+from m2a_transformer.pipeline import M2APipeline
+
+# 1. 설정 및 토크나이저 로드
+cfg = load_config("configs/config.yaml")
+tokenizer = build_tokenizer(cfg)
+
+# 2. 모델 체크포인트 로드
+model = SymbolicTransformer.load_from_checkpoint(
+    "checkpoints/m2a/best.ckpt", 
+    cfg=cfg, 
+    tokenizer=tokenizer
+)
+
+# 3. 파이프라인 실행
+pipeline = M2APipeline(model, tokenizer)
+accompaniment = pipeline.generate_from_melody("input_vocal.mid")
+```
+
+---
+
+## 📊 6. Academic Evaluation & Metrics Framework
 
 모델의 음악적 수준을 객관적으로 입증하기 위해 설계된 종합 정량 평가 체계입니다. `scripts/analysis/compare_inference.py`를 실행하면 모든 결과가 테이블 및 그래프로 자동 요약됩니다.
 
@@ -176,7 +225,7 @@ graph LR
 
 ---
 
-## 🔌 5. Pluggable Registry System: Extensibility
+## 🔌 7. Pluggable Registry System: Extensibility
 
 프로젝트 내부의 모든 핵심 컴포넌트(토크나이저, 모델, 옵티마이저, 스케줄러)는 데코레이터 패턴 기반의 레지스트리 시스템으로 캡슐화되어 있어, 다른 연구원들이 코드를 직접 수정하지 않고 설정 변경만으로 새로운 실험을 할 수 있습니다.
 
@@ -196,7 +245,7 @@ class MySuperTokenizer(BaseTokenizer):
 
 ---
 
-## ⚖️ 6. Comparative Landscape & Technical Analysis (차별점 및 한계 분석)
+## ⚖️ 8. Comparative Landscape & Technical Analysis (차별점 및 한계 분석)
 
 본 프로젝트(**Symbolic Jam Transformer**)가 기존 AI 작곡 패러다임과 비교하여 가지는 고유한 가치와 개선점, 그리고 공학적 한계점을 엄격하게 요약합니다.
 
@@ -218,7 +267,7 @@ class MySuperTokenizer(BaseTokenizer):
 
 ---
 
-## 🔀 7. main 브랜치 대비 핵심 설계 변경 (Branch Design Changes)
+## 🔀 9. main 브랜치 대비 핵심 설계 변경 (Branch Design Changes)
 
 `feat/single-stream-accompaniment` 브랜치는 main 브랜치에서 다음과 같은 구조적 설계 변경을 적용했습니다.
 
