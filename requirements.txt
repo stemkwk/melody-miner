@@ -1,6 +1,6 @@
 # melody-miner — pip dependencies (single env, validated on Windows + py3.12 + CUDA).
 #
-# Install order matters — use scripts/setup_env_windows.sh, or manually:
+# Install order matters — use scripts/setup_venv.sh, or manually:
 #   python -m pip install -U pip setuptools wheel        # py3.12 needs new setuptools
 #   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 #   pip install --only-binary=numpy -r requirements.txt  # keep numpy as a wheel (see below)
