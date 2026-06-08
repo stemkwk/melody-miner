@@ -36,26 +36,7 @@ references/           목표 화자 reference WAV (gitignore — references/READ
 bash scripts/setup_venv.sh          # uv 없으면 자동 설치, .venv 생성
 source .venv/bin/activate           # Windows Git Bash: source .venv/Scripts/activate
 ```
-스크립트 내부 순서 (수동 설치 시 동일):
-```bash
-uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
-uv pip install --only-binary=numpy -e .   # pyproject.toml 의존성 전체 + numpy wheel 강제
-uv pip install --no-deps basic-pitch==0.4.0              # TF 없이 ONNX 백엔드
-# 사운드폰트 없으면 스크립트가 fallback 다운로드
-```
-> CPU-only: `TORCH_INDEX=https://download.pytorch.org/whl/cpu bash scripts/setup_venv.sh`
 
-### ⚠️ 단일 환경 의존성 충돌 (해결 완료 — 이렇게 풀었음)
-한 env에 두 모델을 합칠 때 위험 2가지 + 보너스 1가지가 있었고, **end-to-end로 검증**해 해결했습니다:
-
-| 위험 | 내용 | 해결책 (이 repo 적용·검증됨) |
-|------|------|----------------------|
-| 🔴 **A. basic-pitch ↔ TensorFlow** | basic-pitch 0.4.0이 py3.11+/Windows에서 **무조건 `tensorflow<2.15.1` 요구**(py3.12 wheel 없음, torch와도 충돌). `[onnx]` extra는 존재하지 않음 | **`pip install --no-deps basic-pitch==0.4.0` + `onnxruntime`** — wheel에 동봉된 `nmp.onnx`로 basic-pitch가 **ONNX 백엔드 자동 선택, TF 완전 배제** |
-| 🟠 **B. deepfilternet 네이티브(Rust) 빌드** | `deepfilterlib`(Rust)는 Windows wheel이 **아예 없음** | **생략** — content encoder가 부재를 가드(`_denoise` passthrough), 학습도 skip_denoise → **deepfilternet 없이 음성변환 정상 동작 확인**. 노이즈 입력 denoise 필요 시 Linux/WSL에서만 설치 |
-| 🟢 **C. transformers ↔ torch<2.6** | transformers 4.49+가 CVE로 `torch.load(.bin)`을 차단 → ContentVec(`.bin`) 로드 실패 | **`transformers==4.46.3` 핀** (가드 이전 버전). torch 업그레이드 불필요 |
-
-추가로 numpy는 `--only-binary`로 wheel 강제(py3.12에서 낡은 numpy sdist 빌드가 setuptools를 깨뜨림),
-TNP **FastAPI 서버는 미사용**(오프라인 `convert`만)이라 gradio↔fastapi 충돌도 원천 제거했습니다.
 
 ## 준비물
 - `checkpoints/m2a/…ckpt` — M2A 모델 체크포인트
